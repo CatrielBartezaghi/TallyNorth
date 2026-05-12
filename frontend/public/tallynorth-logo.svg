@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">TallyNorth logo</title>
+  <desc id="desc">A cyan north arrow above financial bars and an upward trend inside a dark rounded square.</desc>
+  <defs>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="7" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0 0 0 0 0 0.95 0 0 0 0 1 0 0 0 .8 0" />
+      <feMerge>
+        <feMergeNode />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <linearGradient id="cyan" x1="126" x2="386" y1="116" y2="396" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34f5ff" />
+      <stop offset="1" stop-color="#00d6c8" />
+    </linearGradient>
+    <linearGradient id="bar" x1="185" x2="327" y1="216" y2="306" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" />
+      <stop offset="1" stop-color="#ececec" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#020407" />
+  <rect x="58" y="58" width="396" height="396" rx="82" fill="#07090e" stroke="#1e222b" stroke-width="4" />
+  <g filter="url(#glow)">
+    <path d="M141 287a120 120 0 0 1 73-105l-10 35a86 86 0 0 0-30 78l-33 9a122 122 0 0 1 0-17Zm229 17-33-9a86 86 0 0 0-30-78l-10-35a120 120 0 0 1 73 122ZM184 347a120 120 0 0 0 144 0l23 24a154 154 0 0 1-190 0l23-24Z" fill="url(#cyan)" />
+    <path d="M256 111 226 224l30-20 30 20-30-113Z" fill="url(#cyan)" />
+    <path d="M200 267h22v101h-22V267Zm57-18h22v119h-22V249Zm57-22h22v141h-22V227Z" fill="url(#bar)" />
+    <path d="m147 317 210-78 12 32-210 78-12-32Z" fill="url(#cyan)" />
+    <path d="M335 260h32v101h-32V260Z" fill="url(#cyan)" />
+  </g>
+</svg>
