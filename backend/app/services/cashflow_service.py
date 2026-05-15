@@ -12,6 +12,7 @@ Recurring transactions are expanded on-the-fly for projection purposes
 """
 
 import calendar
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -43,6 +44,7 @@ def get_monthly_projection(
     db: Session,
     start_date: date,
     num_months: int = 6,
+    user_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """
     Return a list of monthly projection dictionaries for `num_months` starting
@@ -62,32 +64,31 @@ def get_monthly_projection(
     last_year, last_month = months[-1]
     last_month_end = date(last_year, last_month, _last_day(last_year, last_month))
 
-    installments = (
-        db.query(Installment)
-        .filter(
-            Installment.due_date >= first_month_start,
-            Installment.due_date <= last_month_end,
-            Installment.is_paid == False,  # noqa: E712
-        )
-        .all()
+    installments_q = db.query(Installment).filter(
+        Installment.due_date >= first_month_start,
+        Installment.due_date <= last_month_end,
+        Installment.is_paid == False,  # noqa: E712
     )
+    if user_id:
+        installments_q = installments_q.filter(Installment.user_id == user_id)
+    installments = installments_q.all()
 
     # Load all transactions in the window
-    transactions = (
-        db.query(Transaction)
-        .filter(
-            Transaction.date >= first_month_start,
-            Transaction.date <= last_month_end,
-        )
-        .all()
+    transactions_q = db.query(Transaction).filter(
+        Transaction.date >= first_month_start,
+        Transaction.date <= last_month_end,
     )
+    if user_id:
+        transactions_q = transactions_q.filter(Transaction.user_id == user_id)
+    transactions = transactions_q.all()
 
     # Load recurring transactions (they repeat every month)
-    recurring = (
-        db.query(Transaction)
-        .filter(Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly")  # noqa: E712
-        .all()
+    recurring_q = db.query(Transaction).filter(
+        Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly"  # noqa: E712
     )
+    if user_id:
+        recurring_q = recurring_q.filter(Transaction.user_id == user_id)
+    recurring = recurring_q.all()
 
     projection = []
 
@@ -150,7 +151,7 @@ def get_monthly_projection(
     return projection
 
 
-def get_month_summary(db: Session, year: int, month: int) -> dict:
+def get_month_summary(db: Session, year: int, month: int, user_id: uuid.UUID | None = None) -> dict:
     """Return a cashflow summary for a single month."""
-    result = get_monthly_projection(db, start_date=date(year, month, 1), num_months=1)
+    result = get_monthly_projection(db, start_date=date(year, month, 1), num_months=1, user_id=user_id)
     return result[0] if result else {}

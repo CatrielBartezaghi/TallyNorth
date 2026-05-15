@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.exchange_rate import ExchangeRate
+from app.models.user import User
 from app.schemas.exchange_rate import ExchangeRateCreate, ExchangeRateRead, ExchangeRateUpdate
+from app.routers.deps import get_current_active_user
 
 router = APIRouter(prefix="/exchange-rates", tags=["Exchange Rates"])
 
@@ -16,6 +18,7 @@ def list_exchange_rates(
     from_currency_id: Optional[str] = Query(default=None),
     to_currency_id: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     query = db.query(ExchangeRate)
     if from_currency_id:
@@ -26,7 +29,11 @@ def list_exchange_rates(
 
 
 @router.post("/", response_model=ExchangeRateRead, status_code=status.HTTP_201_CREATED)
-def create_exchange_rate(payload: ExchangeRateCreate, db: Session = Depends(get_db)):
+def create_exchange_rate(
+    payload: ExchangeRateCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     rate = ExchangeRate(**payload.model_dump())
     db.add(rate)
     db.commit()
@@ -35,7 +42,11 @@ def create_exchange_rate(payload: ExchangeRateCreate, db: Session = Depends(get_
 
 
 @router.get("/{rate_id}", response_model=ExchangeRateRead)
-def get_exchange_rate(rate_id: str, db: Session = Depends(get_db)):
+def get_exchange_rate(
+    rate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     rate = db.query(ExchangeRate).filter(ExchangeRate.id == rate_id).first()
     if not rate:
         raise HTTPException(status_code=404, detail="Exchange rate not found")
@@ -43,7 +54,12 @@ def get_exchange_rate(rate_id: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{rate_id}", response_model=ExchangeRateRead)
-def update_exchange_rate(rate_id: str, payload: ExchangeRateUpdate, db: Session = Depends(get_db)):
+def update_exchange_rate(
+    rate_id: str,
+    payload: ExchangeRateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     rate = db.query(ExchangeRate).filter(ExchangeRate.id == rate_id).first()
     if not rate:
         raise HTTPException(status_code=404, detail="Exchange rate not found")
@@ -55,10 +71,13 @@ def update_exchange_rate(rate_id: str, payload: ExchangeRateUpdate, db: Session 
 
 
 @router.delete("/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_exchange_rate(rate_id: str, db: Session = Depends(get_db)):
+def delete_exchange_rate(
+    rate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     rate = db.query(ExchangeRate).filter(ExchangeRate.id == rate_id).first()
     if not rate:
         raise HTTPException(status_code=404, detail="Exchange rate not found")
     db.delete(rate)
     db.commit()
-

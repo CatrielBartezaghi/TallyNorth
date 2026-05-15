@@ -7,28 +7,40 @@ from app.database import get_db
 from app.models.credit_card import CreditCard
 from app.models.installment import Installment
 from app.models.purchase import CreditCardPurchase
+from app.models.user import User
 from app.schemas.purchase import PurchaseCreate, PurchaseRead, PurchaseUpdate
 from app.services.installment_service import (
     compute_first_installment_date,
     compute_installment_amount,
     generate_installment_dates,
 )
+from app.routers.deps import get_current_active_user
 
 router = APIRouter(prefix="/purchases", tags=["Credit Card Purchases"])
 
 
 @router.get("/", response_model=list[PurchaseRead])
-def list_purchases(db: Session = Depends(get_db)):
-    return db.query(CreditCardPurchase).order_by(CreditCardPurchase.created_at.desc()).all()
+def list_purchases(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return db.query(CreditCardPurchase).filter(CreditCardPurchase.user_id == current_user.id).order_by(CreditCardPurchase.created_at.desc()).all()
 
 
 @router.post("/", response_model=PurchaseRead, status_code=status.HTTP_201_CREATED)
-def create_purchase(payload: PurchaseCreate, db: Session = Depends(get_db)):
+def create_purchase(
+    payload: PurchaseCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """
     Create a credit card purchase and automatically generate all installment rows.
     Uses the card's closing_day and due_day to compute installment dates.
     """
-    card = db.query(CreditCard).filter(CreditCard.id == str(payload.credit_card_id)).first()
+    card = db.query(CreditCard).filter(
+        CreditCard.id == str(payload.credit_card_id),
+        CreditCard.user_id == current_user.id,
+    ).first()
     if not card:
         raise HTTPException(status_code=404, detail="Credit card not found")
 
@@ -44,6 +56,7 @@ def create_purchase(payload: PurchaseCreate, db: Session = Depends(get_db)):
     due_dates = generate_installment_dates(first_date, num_installments_to_generate, card.due_day)
 
     purchase = CreditCardPurchase(
+        user_id=current_user.id,
         credit_card_id=payload.credit_card_id,
         description=payload.description,
         total_amount=payload.total_amount,
@@ -58,6 +71,7 @@ def create_purchase(payload: PurchaseCreate, db: Session = Depends(get_db)):
 
     for i, due_date in enumerate(due_dates, start=payload.starting_installment):
         installment = Installment(
+            user_id=current_user.id,
             purchase_id=purchase.id,
             installment_number=i,
             due_date=due_date,
@@ -70,7 +84,11 @@ def create_purchase(payload: PurchaseCreate, db: Session = Depends(get_db)):
     return purchase
 
 @router.post("/bulk", response_model=list[PurchaseRead], status_code=status.HTTP_201_CREATED)
-def create_purchases_bulk(payload: list[PurchaseCreate], db: Session = Depends(get_db)):
+def create_purchases_bulk(
+    payload: list[PurchaseCreate],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """
     Create multiple credit card purchases and automatically generate all installment rows for each.
     """
@@ -78,7 +96,13 @@ def create_purchases_bulk(payload: list[PurchaseCreate], db: Session = Depends(g
         return []
 
     card_ids = {str(p.credit_card_id) for p in payload}
-    cards = {str(c.id): c for c in db.query(CreditCard).filter(CreditCard.id.in_(card_ids)).all()}
+    cards = {
+        str(c.id): c
+        for c in db.query(CreditCard).filter(
+            CreditCard.id.in_(card_ids),
+            CreditCard.user_id == current_user.id,
+        ).all()
+    }
 
     missing_cards = card_ids - set(cards.keys())
     if missing_cards:
@@ -100,6 +124,7 @@ def create_purchases_bulk(payload: list[PurchaseCreate], db: Session = Depends(g
         due_dates = generate_installment_dates(first_date, num_installments_to_generate, card.due_day)
 
         purchase = CreditCardPurchase(
+            user_id=current_user.id,
             credit_card_id=item.credit_card_id,
             description=item.description,
             total_amount=item.total_amount,
@@ -114,6 +139,7 @@ def create_purchases_bulk(payload: list[PurchaseCreate], db: Session = Depends(g
 
         for i, due_date in enumerate(due_dates, start=item.starting_installment):
             installment = Installment(
+                user_id=current_user.id,
                 purchase_id=purchase.id,
                 installment_number=i,
                 due_date=due_date,
@@ -130,16 +156,31 @@ def create_purchases_bulk(payload: list[PurchaseCreate], db: Session = Depends(g
 
 
 @router.get("/{purchase_id}", response_model=PurchaseRead)
-def get_purchase(purchase_id: str, db: Session = Depends(get_db)):
-    purchase = db.query(CreditCardPurchase).filter(CreditCardPurchase.id == purchase_id).first()
+def get_purchase(
+    purchase_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    purchase = db.query(CreditCardPurchase).filter(
+        CreditCardPurchase.id == purchase_id,
+        CreditCardPurchase.user_id == current_user.id,
+    ).first()
     if not purchase:
         raise HTTPException(status_code=404, detail="Purchase not found")
     return purchase
 
 
 @router.put("/{purchase_id}", response_model=PurchaseRead)
-def update_purchase(purchase_id: str, payload: PurchaseUpdate, db: Session = Depends(get_db)):
-    purchase = db.query(CreditCardPurchase).filter(CreditCardPurchase.id == purchase_id).first()
+def update_purchase(
+    purchase_id: str,
+    payload: PurchaseUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    purchase = db.query(CreditCardPurchase).filter(
+        CreditCardPurchase.id == purchase_id,
+        CreditCardPurchase.user_id == current_user.id,
+    ).first()
     if not purchase:
         raise HTTPException(status_code=404, detail="Purchase not found")
     for field, value in payload.model_dump(exclude_none=True).items():
@@ -150,9 +191,16 @@ def update_purchase(purchase_id: str, payload: PurchaseUpdate, db: Session = Dep
 
 
 @router.delete("/{purchase_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_purchase(purchase_id: str, db: Session = Depends(get_db)):
+def delete_purchase(
+    purchase_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     """Deleting a purchase cascades to its installment rows."""
-    purchase = db.query(CreditCardPurchase).filter(CreditCardPurchase.id == purchase_id).first()
+    purchase = db.query(CreditCardPurchase).filter(
+        CreditCardPurchase.id == purchase_id,
+        CreditCardPurchase.user_id == current_user.id,
+    ).first()
     if not purchase:
         raise HTTPException(status_code=404, detail="Purchase not found")
     db.delete(purchase)

@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.credit_card import CreditCard
 from app.models.installment import Installment
+from app.models.user import User
 from app.schemas.cashflow import DashboardSummary, MonthlyProjection
 from app.services import cashflow_service
+from app.routers.deps import get_current_active_user
 
 router = APIRouter(prefix="/cashflow", tags=["Cashflow"])
 
@@ -18,11 +20,12 @@ router = APIRouter(prefix="/cashflow", tags=["Cashflow"])
 def get_projection(
     months: int = Query(default=6, ge=1, le=24),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Return a monthly cashflow projection starting from the current month."""
     today = date.today()
     start = date(today.year, today.month, 1)
-    raw = cashflow_service.get_monthly_projection(db, start_date=start, num_months=months)
+    raw = cashflow_service.get_monthly_projection(db, start_date=start, num_months=months, user_id=current_user.id)
     return [MonthlyProjection(**row) for row in raw]
 
 
@@ -30,6 +33,7 @@ def get_projection(
 def get_month_summary(
     month: Optional[str] = Query(default=None, description="YYYY-MM, defaults to current month"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Return cashflow summary for a specific month."""
     today = date.today()
@@ -38,7 +42,7 @@ def get_month_summary(
     else:
         year, m = today.year, today.month
 
-    raw = cashflow_service.get_month_summary(db, year=year, month=m)
+    raw = cashflow_service.get_month_summary(db, year=year, month=m, user_id=current_user.id)
     return MonthlyProjection(**raw)
 
 
@@ -46,18 +50,19 @@ def get_month_summary(
 def get_dashboard(
     projection_months: int = Query(default=6, ge=1, le=12),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Aggregate data for the main dashboard."""
     today = date.today()
     current_month_str = f"{today.year:04d}-{today.month:02d}"
 
     # Current month totals
-    summary_raw = cashflow_service.get_month_summary(db, year=today.year, month=today.month)
+    summary_raw = cashflow_service.get_month_summary(db, year=today.year, month=today.month, user_id=current_user.id)
 
     # Projection
     start = date(today.year, today.month, 1)
     projection_raw = cashflow_service.get_monthly_projection(
-        db, start_date=start, num_months=projection_months
+        db, start_date=start, num_months=projection_months, user_id=current_user.id
     )
     projection = [MonthlyProjection(**row) for row in projection_raw]
 
@@ -65,6 +70,7 @@ def get_dashboard(
     upcoming_raw = (
         db.query(Installment)
         .filter(
+            Installment.user_id == current_user.id,
             Installment.due_date >= today,
             Installment.is_paid == False,  # noqa: E712
         )
