@@ -79,7 +79,7 @@ app.include_router(saving_goals.router, prefix=API_PREFIX)
 app.include_router(investments.router, prefix=API_PREFIX)
 app.include_router(exchange_rates.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)
-app.include_router(auth.router, prefix=f"{route_base}/auth")
+app.include_router(auth.router, prefix=route_base)
 
 
 # ---------------------------------------------------------------------------
