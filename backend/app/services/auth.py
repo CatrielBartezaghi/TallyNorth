@@ -5,10 +5,20 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-# Default to secure values if env vars are not set
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-super-secret-key-that-should-be-changed")
+# ⚠️  JWT_SECRET_KEY MUST be set via environment variable in production.
+# Generate one with: python -c "import secrets; print(secrets.token_urlsafe(64))"
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+if not SECRET_KEY:
+    import warnings
+    warnings.warn(
+        "JWT_SECRET_KEY is not set! Using an insecure default. "
+        "Set it via environment variable before deploying to production.",
+        stacklevel=2,
+    )
+    SECRET_KEY = "dev-only-insecure-key-do-not-use-in-production"
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

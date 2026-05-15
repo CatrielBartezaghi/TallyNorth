@@ -1,6 +1,9 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import settings
 from app.routers import (
     accounts,
     budgets,
@@ -24,12 +27,9 @@ app = FastAPI(
     version="0.1.0",
 )
 
-import os
-
 # ---------------------------------------------------------------------------
 # CORS - allow the Next.js dev server and production domains
 # ---------------------------------------------------------------------------
-# In production, you can set FRONTEND_URL to your Vercel domain
 frontend_url = os.getenv("FRONTEND_URL", "")
 allowed_origins = [
     "http://localhost:3000",
@@ -39,7 +39,6 @@ allowed_origins = [
 ]
 
 if frontend_url:
-    # also allow variations like https://frontend_url and plain string
     if not frontend_url.startswith("http"):
         allowed_origins.append(f"https://{frontend_url}")
     else:
@@ -51,7 +50,7 @@ allow_all = os.getenv("ALLOW_ALL_ORIGINS", "False").lower() == "true"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all else allowed_origins,
-    allow_credentials=not allow_all, # Can't be true if origins is ["*"]
+    allow_credentials=not allow_all,  # Can't be true if origins is ["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -59,10 +58,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
-from app.config import settings
-
-# Vercel's multi-service automatically strips the '/api' prefix from the URL
-# before sending it to the backend. In local development, we keep it.
+# Vercel's multi-service setup strips the '/api' prefix before forwarding
+# requests to the backend. In local development we keep it.
 route_base = "" if settings.environment == "production" else "/api"
 API_PREFIX = f"{route_base}/v1"
 
