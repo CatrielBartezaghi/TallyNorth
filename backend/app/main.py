@@ -59,7 +59,10 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
-API_PREFIX = "/api/v1"
+# Vercel's multi-service automatically strips the '/api' prefix from the URL
+# before sending it to the backend. In local development, we keep it.
+route_base = "" if os.getenv("VERCEL") else "/api"
+API_PREFIX = f"{route_base}/v1"
 
 app.include_router(accounts.router, prefix=API_PREFIX)
 app.include_router(categories.router, prefix=API_PREFIX)
@@ -74,7 +77,7 @@ app.include_router(saving_goals.router, prefix=API_PREFIX)
 app.include_router(investments.router, prefix=API_PREFIX)
 app.include_router(exchange_rates.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)
-app.include_router(auth.router, prefix="/api")
+app.include_router(auth.router, prefix=f"{route_base}/auth")
 
 
 # ---------------------------------------------------------------------------
