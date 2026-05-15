@@ -14,6 +14,9 @@ class Transaction(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
     )
@@ -36,6 +39,7 @@ class Transaction(Base):
     )
 
     # Relationships
+    user: Mapped["User"] = relationship("User")  # noqa: F821
     account: Mapped["Account"] = relationship("Account")  # noqa: F821
     category_ref: Mapped["Category | None"] = relationship("Category")  # noqa: F821
 

@@ -98,19 +98,19 @@ class Converter:
         return _q(value * rate_value)
 
 
-def build_dashboard_summary(db: Session, date_from: date, date_to: date, currency_code: str) -> dict:
+def build_dashboard_summary(db: Session, date_from: date, date_to: date, currency_code: str, user_id: str) -> dict:
     converter = Converter(db, currency_code, date_to)
     prev_days = (date_to - date_from).days + 1
     previous_to = date_from - timedelta(days=1)
     previous_from = previous_to - timedelta(days=prev_days - 1)
 
-    categories = {c.id: c for c in db.query(Category).all()}
+    categories = {c.id: c for c in db.query(Category).filter(Category.user_id == user_id).all()}
     categories_by_name = {c.name.lower(): c for c in categories.values()}
 
     transactions = (
         db.query(Transaction)
         .options(joinedload(Transaction.account), joinedload(Transaction.category_ref))
-        .filter(Transaction.date >= previous_from, Transaction.date <= date_to)
+        .filter(Transaction.user_id == user_id, Transaction.date >= previous_from, Transaction.date <= date_to)
         .all()
     )
     installments = (
@@ -119,7 +119,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card),
             joinedload(Installment.purchase).joinedload(CreditCardPurchase.category_ref),
         )
-        .filter(Installment.due_date >= previous_from, Installment.due_date <= date_to)
+        .filter(Installment.user_id == user_id, Installment.due_date >= previous_from, Installment.due_date <= date_to)
         .all()
     )
 
@@ -185,18 +185,18 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             expenses_by_category[name] += converted
             category_colors[name] = purchase.category_ref.color if purchase.category_ref else "#f59e0b"
 
-    accounts = db.query(Account).options(joinedload(Account.currency)).all()
+    accounts = db.query(Account).options(joinedload(Account.currency)).filter(Account.user_id == user_id).all()
     account_balances = []
     account_total = Decimal("0")
     paid_installments = (
         db.query(Installment)
         .options(joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card))
-        .filter(Installment.is_paid == True)  # noqa: E712
+        .filter(Installment.user_id == user_id, Installment.is_paid == True)  # noqa: E712
         .all()
     )
     for account in accounts:
         balance = _decimal(account.initial_balance)
-        for tx in db.query(Transaction).filter(Transaction.account_id == account.id).all():
+        for tx in db.query(Transaction).filter(Transaction.user_id == user_id, Transaction.account_id == account.id).all():
             balance += _decimal(tx.amount) if tx.type == "income" else -_decimal(tx.amount)
         for inst in paid_installments:
             if inst.paid_account_id == account.id:
@@ -215,7 +215,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             }
         )
 
-    investments = db.query(Investment).options(joinedload(Investment.currency)).all()
+    investments = db.query(Investment).options(joinedload(Investment.currency)).filter(Investment.user_id == user_id).all()
     investment_rows = []
     investment_total = Decimal("0")
     for inv in investments:
@@ -238,7 +238,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             }
         )
 
-    goals = db.query(SavingGoal).options(joinedload(SavingGoal.currency)).all()
+    goals = db.query(SavingGoal).options(joinedload(SavingGoal.currency)).filter(SavingGoal.user_id == user_id).all()
     goal_rows = []
     goals_total = Decimal("0")
     for goal in goals:
@@ -266,7 +266,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     upcoming = (
         db.query(Installment)
         .options(joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card))
-        .filter(Installment.due_date >= date.today(), Installment.is_paid == False)  # noqa: E712
+        .filter(Installment.user_id == user_id, Installment.due_date >= date.today(), Installment.is_paid == False)  # noqa: E712
         .order_by(Installment.due_date)
         .limit(8)
         .all()
@@ -305,7 +305,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     budgets = (
         db.query(Budget)
         .options(joinedload(Budget.category), joinedload(Budget.currency))
-        .filter(Budget.period_start == period_start)
+        .filter(Budget.user_id == user_id, Budget.period_start == period_start)
         .all()
     )
     budget_rows = []

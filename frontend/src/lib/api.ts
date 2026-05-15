@@ -1,14 +1,32 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const API_V1 = `${API_BASE}/api/v1`;
 
+import Cookies from "js-cookie";
+
 // ---------------------------------------------------------------------------
 // Generic fetch helper
 // ---------------------------------------------------------------------------
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = Cookies.get("token");
+  const headers = { 
+    "Content-Type": "application/json", 
+    ...options?.headers 
+  };
+  
+  if (token) {
+    (headers as any)["Authorization"] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_V1}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers,
     ...options,
   });
+
+  if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {
+    Cookies.remove("token");
+    window.location.href = "/login";
+  }
+
   if (!res.ok) {
     const error = await res.text();
     throw new Error(`API error ${res.status}: ${error}`);
@@ -468,4 +486,22 @@ export const dashboardApi = {
     }).toString();
     return apiFetch<FullDashboardSummary>(`/dashboard/summary?${qs}`);
   },
+};
+
+export const authApi = {
+  login: (data: FormData) =>
+    fetch(`${API_BASE}/api/auth/login`, { method: "POST", body: data }).then(res => {
+      if (!res.ok) throw new Error("Login failed");
+      return res.json();
+    }),
+  register: (data: any) =>
+    fetch(`${API_BASE}/api/auth/register`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data) }).then(res => {
+      if (!res.ok) throw new Error("Register failed");
+      return res.json();
+    }),
+  me: (token: string) =>
+    fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } }).then(res => {
+      if (!res.ok) throw new Error("Auth failed");
+      return res.json();
+    }),
 };

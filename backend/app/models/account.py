@@ -14,6 +14,9 @@ class Account(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     type: Mapped[str] = mapped_column(
         SAEnum("checking", "savings", "cash", name="account_type_enum"),
@@ -30,6 +33,7 @@ class Account(Base):
     )
 
     # Relationships
+    user: Mapped["User"] = relationship("User")  # noqa: F821
     currency: Mapped["Currency"] = relationship("Currency")  # noqa: F821
 
     def __repr__(self) -> str:

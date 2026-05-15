@@ -15,6 +15,7 @@ from app.routers import (
     purchases,
     saving_goals,
     transactions,
+    auth,
 )
 
 app = FastAPI(
@@ -73,6 +74,7 @@ app.include_router(saving_goals.router, prefix=API_PREFIX)
 app.include_router(investments.router, prefix=API_PREFIX)
 app.include_router(exchange_rates.router, prefix=API_PREFIX)
 app.include_router(dashboard.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------

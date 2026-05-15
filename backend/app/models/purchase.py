@@ -14,6 +14,9 @@ class CreditCardPurchase(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
     credit_card_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("credit_cards.id", ondelete="CASCADE"),
@@ -36,6 +39,7 @@ class CreditCardPurchase(Base):
     )
 
     # Relationships
+    user: Mapped["User"] = relationship("User")  # noqa: F821
     credit_card: Mapped["CreditCard"] = relationship(  # noqa: F821
         "CreditCard", back_populates="purchases"
     )

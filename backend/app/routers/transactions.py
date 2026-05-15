@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.transaction import Transaction
+from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
+from app.routers.deps import get_current_active_user
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -18,8 +20,9 @@ def list_transactions(
     date_from: Optional[date] = Query(default=None),
     date_to: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
-    query = db.query(Transaction)
+    query = db.query(Transaction).filter(Transaction.user_id == current_user.id)
     if account_id:
         query = query.filter(Transaction.account_id == account_id)
     if type:
@@ -32,8 +35,14 @@ def list_transactions(
 
 
 @router.post("/", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
-def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)):
-    transaction = Transaction(**payload.model_dump())
+def create_transaction(
+    payload: TransactionCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    transaction_data = payload.model_dump()
+    transaction_data["user_id"] = current_user.id
+    transaction = Transaction(**transaction_data)
     db.add(transaction)
     db.commit()
     db.refresh(transaction)
@@ -41,16 +50,25 @@ def create_transaction(payload: TransactionCreate, db: Session = Depends(get_db)
 
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
-def get_transaction(transaction_id: str, db: Session = Depends(get_db)):
-    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+def get_transaction(
+    transaction_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == current_user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return transaction
 
 
 @router.put("/{transaction_id}", response_model=TransactionRead)
-def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Session = Depends(get_db)):
-    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+def update_transaction(
+    transaction_id: str, 
+    payload: TransactionUpdate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == current_user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -61,8 +79,12 @@ def update_transaction(transaction_id: str, payload: TransactionUpdate, db: Sess
 
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_transaction(transaction_id: str, db: Session = Depends(get_db)):
-    transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
+def delete_transaction(
+    transaction_id: str, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    transaction = db.query(Transaction).filter(Transaction.id == transaction_id, Transaction.user_id == current_user.id).first()
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
     db.delete(transaction)

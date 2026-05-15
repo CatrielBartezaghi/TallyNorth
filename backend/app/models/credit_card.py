@@ -14,6 +14,9 @@ class CreditCard(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     closing_day: Mapped[int] = mapped_column(Integer, nullable=False)
     due_day: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -29,6 +32,7 @@ class CreditCard(Base):
     )
 
     # Relationships
+    user: Mapped["User"] = relationship("User")  # noqa: F821
     currency: Mapped["Currency"] = relationship("Currency")  # noqa: F821
     purchases: Mapped[list["CreditCardPurchase"]] = relationship(  # noqa: F821
         back_populates="credit_card", cascade="all, delete-orphan"

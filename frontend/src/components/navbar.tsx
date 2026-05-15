@@ -14,7 +14,10 @@ import {
   Settings,
   Target,
   WalletCards,
+  LogOut,
+  User as UserIcon,
 } from "lucide-react";
+import { useAuth } from "@/lib/AuthContext";
 
 const links = [
   { href: "/", label: "Resumen", icon: BarChart3 },
@@ -30,6 +33,7 @@ const links = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const { user, logout, isLoading } = useAuth();
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
@@ -49,30 +53,50 @@ export function Navbar() {
           </span>
         </Link>
 
-        <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
-          {links.map((link) => {
-            const active = pathname === link.href;
-            const Icon = link.icon;
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-                  active
-                    ? "bg-emerald-500/10 text-emerald-300"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                }`}
+        {user && !isLoading ? (
+          <>
+            <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
+              {links.map((link) => {
+                const active = pathname === link.href;
+                const Icon = link.icon;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                      active
+                        ? "bg-emerald-500/10 text-emerald-300"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <Icon size={15} />
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="hidden min-w-56 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground xl:flex">
+              <Search size={15} />
+              <span>Buscar...</span>
+            </div>
+            
+            <div className="flex items-center gap-2 border-l border-border pl-4 ml-2">
+              <div className="hidden items-center gap-2 text-sm text-muted-foreground md:flex">
+                <UserIcon size={15} />
+                <span>{user.email}</span>
+              </div>
+              <button 
+                onClick={logout}
+                className="flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-950/30 transition-colors"
+                title="Cerrar sesión"
               >
-                <Icon size={15} />
-                {link.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="hidden min-w-56 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground xl:flex">
-          <Search size={15} />
-          <span>Buscar...</span>
-        </div>
+                <LogOut size={15} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1" />
+        )}
       </div>
     </header>
   );
