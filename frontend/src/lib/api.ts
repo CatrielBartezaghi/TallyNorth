@@ -469,6 +469,13 @@ export const investmentsApi = {
 export const exchangeRatesApi = {
   list: () => apiFetch<ExchangeRate[]>("/exchange-rates/"),
   get: (id: string) => apiFetch<ExchangeRate>(`/exchange-rates/${id}`),
+  sync: (params?: { to?: string; from_codes?: string; rate_date?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.to) qs.set("to", params.to);
+    if (params?.from_codes) qs.set("from_codes", params.from_codes);
+    if (params?.rate_date) qs.set("rate_date", params.rate_date);
+    return apiFetch<ExchangeRate[]>(`/exchange-rates/sync${qs.toString() ? `?${qs.toString()}` : ""}`, { method: "POST" });
+  },
   create: (data: ExchangeRatePayload) =>
     apiFetch<ExchangeRate>("/exchange-rates/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Pick<ExchangeRatePayload, "rate" | "date">>) =>

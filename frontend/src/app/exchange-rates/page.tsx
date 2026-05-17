@@ -25,6 +25,7 @@ export default function ExchangeRatesPage() {
   const [editing, setEditing] = useState<ExchangeRate | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currencyMap = useMemo(() => new Map(currencies.map((item) => [item.id, item])), [currencies]);
 
@@ -71,6 +72,18 @@ export default function ExchangeRatesPage() {
     await load();
   };
 
+  const syncMarketRates = async () => {
+    try {
+      setSyncing(true);
+      await exchangeRatesApi.sync({ to: "ARS", from_codes: "USD,EUR,BTC" });
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "No se pudieron actualizar las cotizaciones");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const remove = async (id: string) => {
     if (!confirm("Eliminar esta cotización?")) return;
     await exchangeRatesApi.delete(id);
@@ -84,6 +97,7 @@ export default function ExchangeRatesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Cotizaciones</h1>
           <p className="mt-1 text-muted-foreground">Carga tasas manuales para consolidar el dashboard en ARS.</p>
         </div>
+        <Button variant="outline" onClick={syncMarketRates} disabled={syncing}>{syncing ? "Actualizando..." : "Actualizar mercado"}</Button>
         <Button onClick={openCreate} disabled={currencies.length < 2}>+ Agregar cotización</Button>
       </div>
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}

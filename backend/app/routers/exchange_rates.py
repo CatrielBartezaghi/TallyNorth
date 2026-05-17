@@ -1,14 +1,17 @@
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.currency import Currency
 from app.models.exchange_rate import ExchangeRate
 from app.models.user import User
 from app.schemas.exchange_rate import ExchangeRateCreate, ExchangeRateRead, ExchangeRateUpdate
 from app.routers.deps import get_current_active_user
+from app.services.exchange_rate_provider import ExchangeRateProviderError, fetch_yahoo_rate
 
 router = APIRouter(prefix="/exchange-rates", tags=["Exchange Rates"])
 
@@ -39,6 +42,66 @@ def create_exchange_rate(
     db.commit()
     db.refresh(rate)
     return rate
+
+
+@router.post("/sync", response_model=list[ExchangeRateRead])
+def sync_exchange_rates(
+    to: str = Query(default="ARS", min_length=3, max_length=10),
+    from_codes: str = Query(default="USD,EUR,BTC"),
+    rate_date: date = Query(default_factory=date.today),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    target = db.query(Currency).filter(Currency.code == to.upper()).first()
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Currency '{to.upper()}' not found")
+
+    synced: list[ExchangeRate] = []
+    errors: list[str] = []
+    codes = [code.strip().upper() for code in from_codes.split(",") if code.strip()]
+
+    for code in codes:
+        source = db.query(Currency).filter(Currency.code == code).first()
+        if not source:
+            errors.append(f"Currency '{code}' not found")
+            continue
+        if source.id == target.id:
+            continue
+
+        try:
+            value = fetch_yahoo_rate(source.code, target.code)
+        except ExchangeRateProviderError as exc:
+            errors.append(str(exc))
+            continue
+
+        rate = (
+            db.query(ExchangeRate)
+            .filter(
+                ExchangeRate.from_currency_id == source.id,
+                ExchangeRate.to_currency_id == target.id,
+                ExchangeRate.date == rate_date,
+            )
+            .first()
+        )
+        if rate:
+            rate.rate = value.quantize(Decimal("0.00000001"))
+        else:
+            rate = ExchangeRate(
+                from_currency_id=source.id,
+                to_currency_id=target.id,
+                rate=value.quantize(Decimal("0.00000001")),
+                date=rate_date,
+            )
+            db.add(rate)
+        synced.append(rate)
+
+    if errors and not synced:
+        raise HTTPException(status_code=502, detail="; ".join(errors))
+
+    db.commit()
+    for rate in synced:
+        db.refresh(rate)
+    return synced
 
 
 @router.get("/{rate_id}", response_model=ExchangeRateRead)
