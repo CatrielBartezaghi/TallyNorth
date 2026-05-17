@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { authApi } from "@/lib/api";
@@ -10,8 +10,14 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    if (user) {
+      router.push("/");
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +37,7 @@ export default function RegisterPage() {
       const user = await authApi.me(access_token);
       
       login(access_token, user);
-      router.push("/");
+      window.location.href = "/";
     } catch (err: any) {
       setError(err.message || "Error al crear la cuenta. Intenta con otro email.");
     } finally {

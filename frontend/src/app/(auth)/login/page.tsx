@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { authApi } from "@/lib/api";
@@ -10,8 +10,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    if (user) {
+      router.push("/");
+    }
+  }, [user, router]);
 
   const handleDemoLogin = async () => {
     setEmail("demo@finance.com");
@@ -25,7 +31,7 @@ export default function LoginPage() {
       const { access_token } = await authApi.login(formData);
       const user = await authApi.me(access_token);
       login(access_token, user);
-      router.push("/");
+      window.location.href = "/";
     } catch (err) {
       setError("Error al iniciar sesión con la cuenta Demo.");
     } finally {
@@ -47,7 +53,7 @@ export default function LoginPage() {
       const user = await authApi.me(access_token);
       
       login(access_token, user);
-      router.push("/");
+      window.location.href = "/";
     } catch (err: any) {
       setError(err.message || "Email o contraseña incorrectos");
     } finally {
