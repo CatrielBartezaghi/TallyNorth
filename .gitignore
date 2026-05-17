@@ -13,9 +13,11 @@ build/
 .env.*
 !.env.example
 .venv
+.venv*/
 venv/
 env/
 *.sqlite3
+backend/seed.sql
 
 # Alembic
 backend/alembic/versions/*.pyc
