@@ -26,6 +26,7 @@ export default function ExchangeRatesPage() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currencyMap = useMemo(() => new Map(currencies.map((item) => [item.id, item])), [currencies]);
 
@@ -84,6 +85,23 @@ export default function ExchangeRatesPage() {
     }
   };
 
+  const fillMarketPrice = async () => {
+    if (!form.from_currency_id || !form.to_currency_id || form.from_currency_id === form.to_currency_id) return;
+    try {
+      setQuoting(true);
+      const quote = await exchangeRatesApi.quote({
+        from_currency_id: form.from_currency_id,
+        to_currency_id: form.to_currency_id,
+      });
+      setForm({ ...form, rate: quote.rate, date: quote.date });
+      setError(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "No se pudo obtener el precio de mercado");
+    } finally {
+      setQuoting(false);
+    }
+  };
+
   const remove = async (id: string) => {
     if (!confirm("Eliminar esta cotización?")) return;
     await exchangeRatesApi.delete(id);
@@ -95,7 +113,7 @@ export default function ExchangeRatesPage() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Cotizaciones</h1>
-          <p className="mt-1 text-muted-foreground">Carga tasas manuales para consolidar el dashboard en ARS.</p>
+          <p className="mt-1 text-muted-foreground">Carga precios de conversión para consolidar el dashboard en ARS.</p>
         </div>
         <Button variant="outline" onClick={syncMarketRates} disabled={syncing}>{syncing ? "Actualizando..." : "Actualizar mercado"}</Button>
         <Button onClick={openCreate} disabled={currencies.length < 2}>+ Agregar cotización</Button>
@@ -110,7 +128,7 @@ export default function ExchangeRatesPage() {
                 <TableCell>{item.from_currency.code}</TableCell>
                 <TableCell>{item.to_currency.code}</TableCell>
                 <TableCell>{item.date}</TableCell>
-                <TableCell className="text-right font-mono">{item.rate.toLocaleString("es-AR", { maximumFractionDigits: 8 })}</TableCell>
+                <TableCell className="text-right font-mono">{item.rate.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                 <TableCell className="space-x-2 text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Editar</Button><Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>Eliminar</Button></TableCell>
               </TableRow>
             ))}
@@ -138,8 +156,11 @@ export default function ExchangeRatesPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Fecha"><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-              <Field label="Tasa"><Input type="number" min="0" step="0.00000001" value={form.rate} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setForm({ ...form, rate: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label="Precio"><Input type="number" min="0" step="0.01" value={form.rate} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setForm({ ...form, rate: parseFloat(e.target.value) || 0 })} /></Field>
             </div>
+            <Button variant="outline" onClick={fillMarketPrice} disabled={quoting || !form.from_currency_id || !form.to_currency_id || form.from_currency_id === form.to_currency_id}>
+              {quoting ? "Obteniendo..." : "Obtener precio de mercado"}
+            </Button>
           </div>
           <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button onClick={save} disabled={!form.from_currency_id || !form.to_currency_id || form.from_currency_id === form.to_currency_id || form.rate <= 0}>Guardar</Button></DialogFooter>
         </DialogContent>

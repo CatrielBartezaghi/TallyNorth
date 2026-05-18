@@ -24,6 +24,13 @@ class ExchangeRateUpdate(BaseModel):
     date: DateType | None = None
 
 
+class ExchangeRateQuote(BaseModel):
+    from_currency_id: uuid.UUID
+    to_currency_id: uuid.UUID
+    rate: Decimal = Field(gt=0)
+    date: DateType
+
+
 class ExchangeRateRead(ExchangeRateBase):
     model_config = ConfigDict(from_attributes=True)
 

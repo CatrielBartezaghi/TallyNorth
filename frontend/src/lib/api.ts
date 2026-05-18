@@ -200,6 +200,13 @@ export interface ExchangeRate {
   to_currency: Currency;
 }
 
+export interface ExchangeRateQuote {
+  from_currency_id: string;
+  to_currency_id: string;
+  rate: number;
+  date: string;
+}
+
 export interface FullDashboardSummary {
   currency: string;
   date_from: string;
@@ -469,6 +476,10 @@ export const investmentsApi = {
 export const exchangeRatesApi = {
   list: () => apiFetch<ExchangeRate[]>("/exchange-rates/"),
   get: (id: string) => apiFetch<ExchangeRate>(`/exchange-rates/${id}`),
+  quote: (params: { from_currency_id: string; to_currency_id: string }) => {
+    const qs = new URLSearchParams(params).toString();
+    return apiFetch<ExchangeRateQuote>(`/exchange-rates/quote?${qs}`);
+  },
   sync: (params?: { to?: string; from_codes?: string; rate_date?: string }) => {
     const qs = new URLSearchParams();
     if (params?.to) qs.set("to", params.to);

@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.currency import Currency
 from app.models.exchange_rate import ExchangeRate
 from app.models.user import User
-from app.schemas.exchange_rate import ExchangeRateCreate, ExchangeRateRead, ExchangeRateUpdate
+from app.schemas.exchange_rate import ExchangeRateCreate, ExchangeRateQuote, ExchangeRateRead, ExchangeRateUpdate
 from app.routers.deps import get_current_active_user
 from app.services.exchange_rate_provider import ExchangeRateProviderError, fetch_yahoo_rate
 
@@ -29,6 +29,31 @@ def list_exchange_rates(
     if to_currency_id:
         query = query.filter(ExchangeRate.to_currency_id == to_currency_id)
     return query.order_by(ExchangeRate.date.desc()).all()
+
+
+@router.get("/quote", response_model=ExchangeRateQuote)
+def quote_exchange_rate(
+    from_currency_id: str,
+    to_currency_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    source = db.query(Currency).filter(Currency.id == from_currency_id).first()
+    target = db.query(Currency).filter(Currency.id == to_currency_id).first()
+    if not source or not target:
+        raise HTTPException(status_code=404, detail="Currency not found")
+
+    try:
+        value = fetch_yahoo_rate(source.code, target.code)
+    except ExchangeRateProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {
+        "from_currency_id": source.id,
+        "to_currency_id": target.id,
+        "rate": value.quantize(Decimal("0.01")),
+        "date": date.today(),
+    }
 
 
 @router.post("/", response_model=ExchangeRateRead, status_code=status.HTTP_201_CREATED)
@@ -84,12 +109,12 @@ def sync_exchange_rates(
             .first()
         )
         if rate:
-            rate.rate = value.quantize(Decimal("0.00000001"))
+            rate.rate = value.quantize(Decimal("0.01"))
         else:
             rate = ExchangeRate(
                 from_currency_id=source.id,
                 to_currency_id=target.id,
-                rate=value.quantize(Decimal("0.00000001")),
+                rate=value.quantize(Decimal("0.01")),
                 date=rate_date,
             )
             db.add(rate)
