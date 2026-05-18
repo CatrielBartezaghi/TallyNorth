@@ -500,7 +500,7 @@ export const dashboardApi = {
     const qs = new URLSearchParams({
       from: params.from,
       to: params.to,
-      currency: params.currency ?? "ARS",
+      currency: params.currency ?? "USD",
     }).toString();
     return apiFetch<FullDashboardSummary>(`/dashboard/summary?${qs}`);
   },

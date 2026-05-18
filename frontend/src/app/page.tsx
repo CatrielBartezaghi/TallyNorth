@@ -46,7 +46,7 @@ function defaultRange() {
   return { from: isoDate(from), to: isoDate(to) };
 }
 
-function formatMoney(value: number | string | null | undefined, currency = "ARS") {
+function formatMoney(value: number | string | null | undefined, currency = "USD") {
   const numeric = toNumber(value);
   if (numeric === null) return "Sin cotización";
   return new Intl.NumberFormat("es-AR", {
@@ -85,7 +85,7 @@ export default function DashboardPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const summary = await dashboardApi.summary({ from: range.from, to: range.to, currency: "ARS" });
+        const summary = await dashboardApi.summary({ from: range.from, to: range.to, currency: "USD" });
         if (mounted) {
           setData(summary);
           setError(null);

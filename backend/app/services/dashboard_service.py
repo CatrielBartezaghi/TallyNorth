@@ -71,6 +71,37 @@ class Converter:
         self.warnings: list[str] = []
         self._cache: dict[str, Decimal | None] = {}
 
+    def _latest_rate(self, from_currency_id, to_currency_id) -> Decimal | None:
+        rate = (
+            self.db.query(ExchangeRate)
+            .filter(
+                ExchangeRate.from_currency_id == from_currency_id,
+                ExchangeRate.to_currency_id == to_currency_id,
+                ExchangeRate.date <= self.as_of,
+            )
+            .order_by(ExchangeRate.date.desc())
+            .first()
+        )
+        return _decimal(rate.rate) if rate else None
+
+    def _conversion_rate(self, currency: Currency) -> Decimal | None:
+        direct = self._latest_rate(currency.id, self.target.id)
+        if direct is not None:
+            return direct
+
+        inverse = self._latest_rate(self.target.id, currency.id)
+        if inverse not in (None, Decimal("0")):
+            return Decimal("1") / inverse
+
+        ars = self.db.query(Currency).filter(Currency.code == "ARS").first()
+        if ars and currency.id != ars.id and self.target.id != ars.id:
+            source_to_ars = self._latest_rate(currency.id, ars.id)
+            target_to_ars = self._latest_rate(self.target.id, ars.id)
+            if source_to_ars is not None and target_to_ars not in (None, Decimal("0")):
+                return source_to_ars / target_to_ars
+
+        return None
+
     def convert(self, amount, currency: Currency | None) -> Decimal | None:
         value = _decimal(amount)
         if not currency or currency.id == self.target.id:
@@ -78,18 +109,8 @@ class Converter:
 
         cache_key = str(currency.id)
         if cache_key not in self._cache:
-            rate = (
-                self.db.query(ExchangeRate)
-                .filter(
-                    ExchangeRate.from_currency_id == currency.id,
-                    ExchangeRate.to_currency_id == self.target.id,
-                    ExchangeRate.date <= self.as_of,
-                )
-                .order_by(ExchangeRate.date.desc())
-                .first()
-            )
-            self._cache[cache_key] = _decimal(rate.rate) if rate else None
-            if not rate:
+            self._cache[cache_key] = self._conversion_rate(currency)
+            if self._cache[cache_key] is None:
                 self.warnings.append(f"Missing {currency.code}->{self.target.code} exchange rate")
 
         rate_value = self._cache[cache_key]

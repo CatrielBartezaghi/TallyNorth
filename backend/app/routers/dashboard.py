@@ -16,7 +16,7 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 def get_dashboard_summary(
     date_from: date = Query(alias="from"),
     date_to: date = Query(alias="to"),
-    currency: str = Query(default="ARS", min_length=3, max_length=10),
+    currency: str = Query(default="USD", min_length=3, max_length=10),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
