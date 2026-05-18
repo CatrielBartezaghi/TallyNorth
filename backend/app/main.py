@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,11 +21,22 @@ from app.routers import (
     transactions,
     auth,
 )
+from app.services.exchange_rate_scheduler import start_exchange_rate_cron, stop_exchange_rate_cron
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    exchange_rate_task = start_exchange_rate_cron()
+    try:
+        yield
+    finally:
+        await stop_exchange_rate_cron(exchange_rate_task)
 
 app = FastAPI(
     title="TallyNorth API",
     description="Personal finance platform - cashflow projection and credit card installment tracking",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # ---------------------------------------------------------------------------

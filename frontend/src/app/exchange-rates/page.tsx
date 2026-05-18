@@ -67,6 +67,16 @@ export default function ExchangeRatesPage() {
   };
 
   const save = async () => {
+    const duplicate = items.find((item) => (
+      item.id !== editing?.id &&
+      item.from_currency_id === form.from_currency_id &&
+      item.to_currency_id === form.to_currency_id &&
+      item.date === form.date
+    ));
+    if (duplicate) {
+      setError("Ya existe una cotización para ese par y fecha");
+      return;
+    }
     if (editing) await exchangeRatesApi.update(editing.id, { rate: form.rate, date: form.date });
     else await exchangeRatesApi.create(form);
     setOpen(false);

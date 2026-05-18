@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.exchange_rate import ExchangeRateCreate, ExchangeRateQuote, ExchangeRateRead, ExchangeRateUpdate
 from app.routers.deps import get_current_active_user
 from app.services.exchange_rate_provider import ExchangeRateProviderError, fetch_yahoo_rate
+from app.services.exchange_rate_sync import sync_market_rates
 
 router = APIRouter(prefix="/exchange-rates", tags=["Exchange Rates"])
 
@@ -62,6 +63,18 @@ def create_exchange_rate(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    existing = (
+        db.query(ExchangeRate)
+        .filter(
+            ExchangeRate.from_currency_id == payload.from_currency_id,
+            ExchangeRate.to_currency_id == payload.to_currency_id,
+            ExchangeRate.date == payload.date,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Exchange rate already exists for this pair and date")
+
     rate = ExchangeRate(**payload.model_dump())
     db.add(rate)
     db.commit()
@@ -77,55 +90,15 @@ def sync_exchange_rates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    target = db.query(Currency).filter(Currency.code == to.upper()).first()
-    if not target:
-        raise HTTPException(status_code=404, detail=f"Currency '{to.upper()}' not found")
-
-    synced: list[ExchangeRate] = []
-    errors: list[str] = []
-    codes = [code.strip().upper() for code in from_codes.split(",") if code.strip()]
-
-    for code in codes:
-        source = db.query(Currency).filter(Currency.code == code).first()
-        if not source:
-            errors.append(f"Currency '{code}' not found")
-            continue
-        if source.id == target.id:
-            continue
-
-        try:
-            value = fetch_yahoo_rate(source.code, target.code)
-        except ExchangeRateProviderError as exc:
-            errors.append(str(exc))
-            continue
-
-        rate = (
-            db.query(ExchangeRate)
-            .filter(
-                ExchangeRate.from_currency_id == source.id,
-                ExchangeRate.to_currency_id == target.id,
-                ExchangeRate.date == rate_date,
-            )
-            .first()
-        )
-        if rate:
-            rate.rate = value.quantize(Decimal("0.01"))
-        else:
-            rate = ExchangeRate(
-                from_currency_id=source.id,
-                to_currency_id=target.id,
-                rate=value.quantize(Decimal("0.01")),
-                date=rate_date,
-            )
-            db.add(rate)
-        synced.append(rate)
+    synced, errors = sync_market_rates(
+        db,
+        to_code=to,
+        from_codes=[code.strip().upper() for code in from_codes.split(",") if code.strip()],
+        rate_date=rate_date,
+    )
 
     if errors and not synced:
         raise HTTPException(status_code=502, detail="; ".join(errors))
-
-    db.commit()
-    for rate in synced:
-        db.refresh(rate)
     return synced
 
 
@@ -151,7 +124,23 @@ def update_exchange_rate(
     rate = db.query(ExchangeRate).filter(ExchangeRate.id == rate_id).first()
     if not rate:
         raise HTTPException(status_code=404, detail="Exchange rate not found")
-    for field, value in payload.model_dump(exclude_none=True).items():
+    update_data = payload.model_dump(exclude_none=True)
+    next_date = update_data.get("date", rate.date)
+    if next_date != rate.date:
+        existing = (
+            db.query(ExchangeRate)
+            .filter(
+                ExchangeRate.id != rate.id,
+                ExchangeRate.from_currency_id == rate.from_currency_id,
+                ExchangeRate.to_currency_id == rate.to_currency_id,
+                ExchangeRate.date == next_date,
+            )
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="Exchange rate already exists for this pair and date")
+
+    for field, value in update_data.items():
         setattr(rate, field, value)
     db.commit()
     db.refresh(rate)
