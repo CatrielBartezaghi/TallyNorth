@@ -28,6 +28,7 @@ export default function ExchangeRatesPage() {
   const [syncing, setSyncing] = useState(false);
   const [quoting, setQuoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const currencyMap = useMemo(() => new Map(currencies.map((item) => [item.id, item])), [currencies]);
 
   const load = async () => {
@@ -52,6 +53,7 @@ export default function ExchangeRatesPage() {
     const firstForeign = currencies.find((item) => item.code !== "ARS");
     setEditing(null);
     setForm({ ...EMPTY, from_currency_id: firstForeign?.id ?? currencies[0]?.id ?? "", to_currency_id: ars?.id ?? currencies[1]?.id ?? "" });
+    setDialogError(null);
     setOpen(true);
   };
 
@@ -63,6 +65,7 @@ export default function ExchangeRatesPage() {
       rate: item.rate,
       date: item.date,
     });
+    setDialogError(null);
     setOpen(true);
   };
 
@@ -74,13 +77,18 @@ export default function ExchangeRatesPage() {
       item.date === form.date
     ));
     if (duplicate) {
-      setError("Ya existe una cotización para ese par y fecha");
+      setDialogError("Ya existe una cotización para ese par y fecha");
       return;
     }
-    if (editing) await exchangeRatesApi.update(editing.id, { rate: form.rate, date: form.date });
-    else await exchangeRatesApi.create(form);
-    setOpen(false);
-    await load();
+    try {
+      if (editing) await exchangeRatesApi.update(editing.id, { rate: form.rate, date: form.date });
+      else await exchangeRatesApi.create(form);
+      setOpen(false);
+      setDialogError(null);
+      await load();
+    } catch (e: unknown) {
+      setDialogError(e instanceof Error ? e.message : "No se pudo guardar la cotización");
+    }
   };
 
   const syncMarketRates = async () => {
@@ -104,6 +112,7 @@ export default function ExchangeRatesPage() {
         to_currency_id: form.to_currency_id,
       });
       setForm({ ...form, rate: quote.rate, date: quote.date });
+      setDialogError(null);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "No se pudo obtener el precio de mercado");
@@ -152,22 +161,23 @@ export default function ExchangeRatesPage() {
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Desde">
-                <Select value={form.from_currency_id} disabled={!!editing} onValueChange={(v) => setForm({ ...form, from_currency_id: v ?? "" })}>
+                <Select value={form.from_currency_id} disabled={!!editing} onValueChange={(v) => { setDialogError(null); setForm({ ...form, from_currency_id: v ?? "" }); }}>
                   <SelectTrigger><span className="text-sm">{currencyMap.get(form.from_currency_id)?.code ?? "Seleccionar"}</span></SelectTrigger>
                   <SelectContent>{currencies.map((item) => <SelectItem key={item.id} value={item.id}>{item.code}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
               <Field label="Hacia">
-                <Select value={form.to_currency_id} disabled={!!editing} onValueChange={(v) => setForm({ ...form, to_currency_id: v ?? "" })}>
+                <Select value={form.to_currency_id} disabled={!!editing} onValueChange={(v) => { setDialogError(null); setForm({ ...form, to_currency_id: v ?? "" }); }}>
                   <SelectTrigger><span className="text-sm">{currencyMap.get(form.to_currency_id)?.code ?? "Seleccionar"}</span></SelectTrigger>
                   <SelectContent>{currencies.map((item) => <SelectItem key={item.id} value={item.id}>{item.code}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Fecha"><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
-              <Field label="Precio"><Input type="number" min="0" step="0.01" value={form.rate} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setForm({ ...form, rate: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label="Fecha"><Input type="date" value={form.date} onChange={(e) => { setDialogError(null); setForm({ ...form, date: e.target.value }); }} /></Field>
+              <Field label="Precio"><Input type="number" min="0" step="0.01" value={form.rate} onFocus={(e) => e.currentTarget.select()} onChange={(e) => { setDialogError(null); setForm({ ...form, rate: parseFloat(e.target.value) || 0 }); }} /></Field>
             </div>
+            {dialogError && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{dialogError}</div>}
             <Button variant="outline" onClick={fillMarketPrice} disabled={quoting || !form.from_currency_id || !form.to_currency_id || form.from_currency_id === form.to_currency_id}>
               {quoting ? "Obteniendo..." : "Obtener precio de mercado"}
             </Button>
