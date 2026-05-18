@@ -121,14 +121,14 @@ export default function ExchangeRatesPage() {
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}
       <div className="rounded-lg border border-border">
         <Table>
-          <TableHeader><TableRow><TableHead>Desde</TableHead><TableHead>Hacia</TableHead><TableHead>Fecha</TableHead><TableHead className="text-right">Tasa</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Desde</TableHead><TableHead>Hacia</TableHead><TableHead>Fecha</TableHead><TableHead className="text-right">Precio</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
           <TableBody>
             {loading ? <TableRow><TableCell colSpan={5}>Cargando...</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={5}>Sin cotizaciones.</TableCell></TableRow> : items.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.from_currency.code}</TableCell>
                 <TableCell>{item.to_currency.code}</TableCell>
                 <TableCell>{item.date}</TableCell>
-                <TableCell className="text-right font-mono">{item.rate.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                <TableCell className="text-right font-mono">{Number(item.rate).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                 <TableCell className="space-x-2 text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Editar</Button><Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>Eliminar</Button></TableCell>
               </TableRow>
             ))}
