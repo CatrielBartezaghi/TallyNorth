@@ -8,13 +8,11 @@ import Cookies from "js-cookie";
 // ---------------------------------------------------------------------------
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = Cookies.get("token");
-  const headers = { 
-    "Content-Type": "application/json", 
-    ...options?.headers 
-  };
+  const headers = new Headers(options?.headers);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   
   if (token) {
-    (headers as any)["Authorization"] = `Bearer ${token}`;
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const res = await fetch(`${API_V1}${path}`, {
@@ -512,7 +510,7 @@ export const authApi = {
       if (!res.ok) throw new Error("Login failed");
       return res.json();
     }),
-  register: (data: any) =>
+  register: (data: { email: string; password: string }) =>
     fetch(`${API_BASE}/api/auth/register`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data) }).then(res => {
       if (!res.ok) throw new Error("Register failed");
       return res.json();

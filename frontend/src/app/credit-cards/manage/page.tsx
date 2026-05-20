@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { useLanguage } from "@/lib/LanguageContext";
 
 interface CreditCardForm {
   name: string;
@@ -46,14 +47,14 @@ export default function ManageCardsPage() {
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [cardDialogOpen, setCardDialogOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<CreditCard | null>(null);
   const [cardForm, setCardForm] = useState<CreditCardForm>(EMPTY_CARD_FORM);
   const [savingCard, setSavingCard] = useState(false);
+  const { lang, t } = useLanguage();
+  const locale = lang === "es" ? "es-AR" : "en-US";
 
   const load = async (showLoading = true) => {
     try {
@@ -68,12 +69,13 @@ export default function ManageCardsPage() {
       setCurrencies(currencyRows);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load data");
+      setError(e instanceof Error ? e.message : t.common.errorLoadingData);
     } finally {
       setLoading(false);
     }
   };
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(true); }, []);
 
   const openCreateCard = () => {
@@ -110,19 +112,19 @@ export default function ManageCardsPage() {
       setCardDialogOpen(false);
       await load(false);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : t.manageCreditCards.saveError);
     } finally {
       setSavingCard(false);
     }
   };
 
   const handleCardDelete = async (id: string) => {
-    if (!confirm("Delete this credit card? This will also delete its purchases and installments.")) return;
+    if (!confirm(t.manageCreditCards.confirmDelete)) return;
     try {
       await creditCardsApi.delete(id);
       await load(false);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      setError(e instanceof Error ? e.message : t.manageCreditCards.deleteError);
     }
   };
 
@@ -133,9 +135,9 @@ export default function ManageCardsPage() {
           <ArrowLeft size={18} />
         </Link>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Manage Credit Cards</h1>
-          <p className="text-muted-foreground mt-1">
-            Add, edit, and configure your credit cards and auto-debit accounts.
+          <h1 className="text-3xl font-bold tracking-tight">{t.manageCreditCards.title}</h1>
+          <p className="mt-1 text-muted-foreground">
+            {t.manageCreditCards.subtitle}
           </p>
         </div>
       </div>
@@ -147,15 +149,15 @@ export default function ManageCardsPage() {
       )}
 
       <div className="flex gap-2">
-        <Button onClick={openCreateCard}>+ Add Card</Button>
+        <Button onClick={openCreateCard}>{t.manageCreditCards.add}</Button>
       </div>
 
       {loading ? (
-        <p className="text-muted-foreground text-sm">Loading...</p>
+        <p className="text-sm text-muted-foreground">{t.common.loading}</p>
       ) : cards.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center text-muted-foreground">
-          <p className="text-lg">No cards configured yet.</p>
-          <p className="text-sm mt-1">Click "+ Add Card" to set up your first one.</p>
+          <p className="text-lg">{t.manageCreditCards.noCards}</p>
+          <p className="mt-1 text-sm">{t.manageCreditCards.emptyHint}</p>
         </div>
       ) : (
         <div className="rounded-lg border border-border bg-card">
@@ -163,33 +165,33 @@ export default function ManageCardsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Payment Account</TableHead>
-                  <TableHead>Currency</TableHead>
-                  <TableHead>Limit</TableHead>
-                  <TableHead className="whitespace-nowrap">Closing / Due</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{t.common.name}</TableHead>
+                  <TableHead>{t.manageCreditCards.paymentAccount}</TableHead>
+                  <TableHead>{t.common.currency}</TableHead>
+                  <TableHead>{t.manageCreditCards.limit}</TableHead>
+                  <TableHead className="whitespace-nowrap">{t.manageCreditCards.closingDue}</TableHead>
+                  <TableHead className="text-right">{t.common.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {cards.map((card) => {
-                  const account = accounts.find(a => a.id === card.payment_account_id);
-                  const currency = currencies.find(c => c.id === card.currency_id);
+                  const account = accounts.find((item) => item.id === card.payment_account_id);
+                  const currency = currencies.find((item) => item.id === card.currency_id);
                   return (
                     <TableRow key={card.id}>
                       <TableCell className="font-medium whitespace-nowrap">{card.name}</TableCell>
-                      <TableCell className="text-muted-foreground whitespace-nowrap">{account?.name || "Not linked"}</TableCell>
-                      <TableCell className="whitespace-nowrap">{currency?.code || "Unknown"}</TableCell>
+                      <TableCell className="text-muted-foreground whitespace-nowrap">{account?.name || t.manageCreditCards.notLinked}</TableCell>
+                      <TableCell className="whitespace-nowrap">{currency?.code || t.common.unknown}</TableCell>
                       <TableCell className="whitespace-nowrap">
-                        {card.credit_limit ? `${currency?.symbol || ""} ${card.credit_limit.toLocaleString()}` : "No limit"}
+                        {card.credit_limit ? `${currency?.symbol || ""} ${card.credit_limit.toLocaleString(locale)}` : t.manageCreditCards.noLimit}
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
-                        Day {card.closing_day} / Day {card.due_day}
+                        {t.manageCreditCards.day} {card.closing_day} / {t.manageCreditCards.day} {card.due_day}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => openEditCard(card)}>Edit</Button>
-                          <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleCardDelete(card.id)}>Delete</Button>
+                          <Button variant="ghost" size="sm" onClick={() => openEditCard(card)}>{t.common.edit}</Button>
+                          <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleCardDelete(card.id)}>{t.common.delete}</Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -201,18 +203,17 @@ export default function ManageCardsPage() {
         </div>
       )}
 
-      {/* --- Create/Edit Card Dialog --- */}
       <Dialog open={cardDialogOpen} onOpenChange={setCardDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingCard ? "Edit Credit Card" : "Add Credit Card"}</DialogTitle>
+            <DialogTitle>{editingCard ? t.manageCreditCards.editDialog : t.manageCreditCards.addDialog}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="card-name">Name</Label>
+              <Label htmlFor="card-name">{t.common.name}</Label>
               <Input
                 id="card-name"
-                placeholder="e.g. Visa Signature"
+                placeholder={t.manageCreditCards.placeholderName}
                 value={cardForm.name}
                 onChange={(e) => setCardForm({ ...cardForm, name: e.target.value })}
               />
@@ -220,29 +221,29 @@ export default function ManageCardsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Currency</Label>
+                <Label>{t.common.currency}</Label>
                 <Select value={cardForm.currency_id || ""} onValueChange={(v: string | null) => setCardForm({ ...cardForm, currency_id: v ?? "" })}>
                   <SelectTrigger className="min-w-0">
-                    <SelectValue placeholder="Select currency">
-                      {currencies.find(c => c.id === cardForm.currency_id)?.code}
+                    <SelectValue placeholder={t.accounts.selectCurrency}>
+                      {currencies.find((currency) => currency.id === cardForm.currency_id)?.code}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {currencies.map((c) => <SelectItem key={c.id} value={c.id}>{c.code}</SelectItem>)}
+                    {currencies.map((currency) => <SelectItem key={currency.id} value={currency.id}>{currency.code}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Auto-debit Account</Label>
+                <Label>{t.manageCreditCards.autoDebitAccount}</Label>
                 <Select value={cardForm.payment_account_id || "none"} onValueChange={(v: string | null) => setCardForm({ ...cardForm, payment_account_id: v === "none" || v === null ? null : v })}>
                   <SelectTrigger className="min-w-0">
-                    <SelectValue placeholder="None (Manual payment)">
-                      {accounts.find(a => a.id === cardForm.payment_account_id)?.name ?? "None (Manual payment)"}
+                    <SelectValue placeholder={t.manageCreditCards.manualPayment}>
+                      {accounts.find((account) => account.id === cardForm.payment_account_id)?.name ?? t.manageCreditCards.manualPayment}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">None (Manual payment)</SelectItem>
-                    {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                    <SelectItem value="none">{t.manageCreditCards.manualPayment}</SelectItem>
+                    {accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -250,7 +251,7 @@ export default function ManageCardsPage() {
 
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="closing-day">Closing Day</Label>
+                <Label htmlFor="closing-day">{t.manageCreditCards.closingDay}</Label>
                 <Input
                   id="closing-day"
                   type="number"
@@ -261,7 +262,7 @@ export default function ManageCardsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="due-day">Due Day</Label>
+                <Label htmlFor="due-day">{t.manageCreditCards.dueDay}</Label>
                 <Input
                   id="due-day"
                   type="number"
@@ -272,11 +273,11 @@ export default function ManageCardsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="credit-limit">Limit</Label>
+                <Label htmlFor="credit-limit">{t.manageCreditCards.limit}</Label>
                 <Input
                   id="credit-limit"
                   type="number"
-                  step="0.01" min="0" placeholder="Optional"
+                  step="0.01" min="0" placeholder={t.manageCreditCards.optional}
                   value={cardForm.credit_limit ?? ""}
                   onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setCardForm({ ...cardForm, credit_limit: e.target.value ? parseFloat(e.target.value) : null })}
@@ -285,9 +286,9 @@ export default function ManageCardsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setCardDialogOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setCardDialogOpen(false)}>{t.common.cancel}</Button>
             <Button onClick={handleCardSave} disabled={savingCard || !cardForm.name || !cardForm.currency_id}>
-              {savingCard ? "Saving..." : "Save"}
+              {savingCard ? t.common.saving : t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>

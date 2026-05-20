@@ -26,9 +26,15 @@ import {
 import { dashboardApi, type FullDashboardSummary } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/lib/LanguageContext";
+import type { Language, Translations } from "@/lib/translations";
 
 const chartText = "#94a3b8";
 const chartGrid = "#1f2937";
+
+function localeFor(lang: Language) {
+  return lang === "es" ? "es-AR" : "en-US";
+}
 
 function toNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined) return null;
@@ -46,19 +52,24 @@ function defaultRange() {
   return { from: isoDate(from), to: isoDate(to) };
 }
 
-function formatMoney(value: number | string | null | undefined, currency = "USD") {
+function formatMoney(
+  value: number | string | null | undefined,
+  lang: Language,
+  noQuote: string,
+  currency = "USD",
+) {
   const numeric = toNumber(value);
-  if (numeric === null) return "Sin cotización";
-  return new Intl.NumberFormat("es-AR", {
+  if (numeric === null) return noQuote;
+  return new Intl.NumberFormat(localeFor(lang), {
     style: "currency",
     currency,
     maximumFractionDigits: 0,
   }).format(numeric);
 }
 
-function formatPct(value: number | string | null) {
+function formatPct(value: number | string | null, noPreviousPeriod: string) {
   const numeric = toNumber(value);
-  if (numeric === null) return "Sin período previo";
+  if (numeric === null) return noPreviousPeriod;
   return `${numeric >= 0 ? "+" : ""}${numeric.toFixed(1)}%`;
 }
 
@@ -66,9 +77,9 @@ function formatFixed(value: number | string | null | undefined, digits: number) 
   return (toNumber(value) ?? 0).toFixed(digits);
 }
 
-function shortMonth(value: string) {
+function shortMonth(value: string, lang: Language) {
   const [year, month] = value.split("-").map(Number);
-  return new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
+  return new Date(year, month - 1, 1).toLocaleDateString(localeFor(lang), {
     month: "short",
     year: "2-digit",
   });
@@ -79,6 +90,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<FullDashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { lang, t } = useLanguage();
 
   useEffect(() => {
     let mounted = true;
@@ -91,7 +103,7 @@ export default function DashboardPage() {
           setError(null);
         }
       } catch (e: unknown) {
-        if (mounted) setError(e instanceof Error ? e.message : "No se pudo cargar el dashboard");
+        if (mounted) setError(e instanceof Error ? e.message : t.dashboard.loadError);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -100,7 +112,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [range]);
+  }, [range, t.dashboard.loadError]);
 
   const monthly = useMemo(
     () => data?.monthly_flow.map((item) => ({
@@ -108,30 +120,33 @@ export default function DashboardPage() {
       income: toNumber(item.income) ?? 0,
       expenses: toNumber(item.expenses) ?? 0,
       net: toNumber(item.net) ?? 0,
-      label: shortMonth(item.month),
+      label: shortMonth(item.month, lang),
     })) ?? [],
-    [data],
+    [data, lang],
   );
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Cargando panel financiero...</p>;
+    return <p className="text-sm text-muted-foreground">{t.dashboard.loading}</p>;
   }
 
   if (error || !data) {
     return (
       <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-        {error ?? "No hay datos disponibles"}
+        {error ?? t.dashboard.noData}
       </div>
     );
   }
+
+  const money = (value: number | string | null | undefined, currency = "USD") =>
+    formatMoney(value, lang, t.dashboard.noQuote, currency);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Panel financiero</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t.dashboard.title}</h1>
           <p className="text-sm text-muted-foreground">
-            Resumen general de tus finanzas en {data.currency}
+            {t.dashboard.subtitle} {data.currency}
           </p>
         </div>
         <Badge variant="outline" className="border-cyan-400/30 text-cyan-300">
@@ -141,35 +156,35 @@ export default function DashboardPage() {
 
       {data.warnings.length > 0 && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          {data.warnings.join(" · ")}
+          {data.warnings.join(" / ")}
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard title="Ingresos" icon={<ArrowUpRight size={22} />} value={data.kpis.income.value} change={data.kpis.income.change_pct} tone="green" />
-        <KpiCard title="Gastos" icon={<ArrowDownRight size={22} />} value={data.kpis.expenses.value} change={data.kpis.expenses.change_pct} tone="red" />
-        <KpiCard title="Ahorro neto" icon={<Wallet size={22} />} value={data.kpis.net_savings.value} change={data.kpis.net_savings.change_pct} tone="blue" />
-        <KpiCard title="Patrimonio" icon={<Landmark size={22} />} value={data.kpis.wealth.value} change={data.kpis.wealth.change_pct} tone="cyan" />
+        <KpiCard title={t.dashboard.income} icon={<ArrowUpRight size={22} />} value={data.kpis.income.value} change={data.kpis.income.change_pct} tone="green" lang={lang} t={t} />
+        <KpiCard title={t.dashboard.expenses} icon={<ArrowDownRight size={22} />} value={data.kpis.expenses.value} change={data.kpis.expenses.change_pct} tone="red" lang={lang} t={t} />
+        <KpiCard title={t.dashboard.netSavings} icon={<Wallet size={22} />} value={data.kpis.net_savings.value} change={data.kpis.net_savings.change_pct} tone="blue" lang={lang} t={t} />
+        <KpiCard title={t.dashboard.wealth} icon={<Landmark size={22} />} value={data.kpis.wealth.value} change={data.kpis.wealth.change_pct} tone="cyan" lang={lang} t={t} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.35fr_0.85fr_0.9fr]">
-        <Panel title="Flujo mensual" className="min-h-[270px]">
+        <Panel title={t.dashboard.monthlyFlow} className="min-h-[270px]">
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={monthly}>
               <CartesianGrid stroke={chartGrid} vertical={false} />
               <XAxis dataKey="label" stroke={chartText} fontSize={12} tickLine={false} axisLine={false} />
               <YAxis stroke={chartText} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`} />
-              <Tooltip formatter={(v) => formatMoney(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
-              <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} dot={false} name="Ingresos" />
-              <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={false} name="Gastos" />
-              <Line type="monotone" dataKey="net" stroke="#38bdf8" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Ahorro neto" />
+              <Tooltip formatter={(v) => money(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
+              <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} dot={false} name={t.dashboard.income} />
+              <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={false} name={t.dashboard.expenses} />
+              <Line type="monotone" dataKey="net" stroke="#38bdf8" strokeWidth={2} strokeDasharray="5 5" dot={false} name={t.dashboard.netSavings} />
             </LineChart>
           </ResponsiveContainer>
         </Panel>
 
-        <Panel title="Gastos por categoría" className="min-h-[270px]">
+        <Panel title={t.dashboard.expensesByCategory} className="min-h-[270px]">
           {data.expenses_by_category.length === 0 ? (
-            <EmptyState text="Sin gastos en el período" />
+            <EmptyState text={t.dashboard.noExpensesInPeriod} />
           ) : (
             <div className="grid grid-cols-[140px_1fr] items-center gap-3">
               <ResponsiveContainer width="100%" height={170}>
@@ -179,7 +194,7 @@ export default function DashboardPage() {
                       <Cell key={entry.category} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v) => formatMoney(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
+                  <Tooltip formatter={(v) => money(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-2">
@@ -194,10 +209,10 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        <Panel title="Balance de cuentas" className="min-h-[270px]">
+        <Panel title={t.dashboard.accountBalances} className="min-h-[270px]">
           <div className="space-y-3">
             {data.account_balances.length === 0 ? (
-              <EmptyState text="Sin cuentas cargadas" />
+              <EmptyState text={t.dashboard.noAccounts} />
             ) : data.account_balances.slice(0, 6).map((account) => (
               <div key={account.account_id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 text-sm">
                 <span className="rounded-md bg-emerald-500/15 p-1.5 text-emerald-300"><Banknote size={16} /></span>
@@ -207,7 +222,7 @@ export default function DashboardPage() {
                     <div className="h-1.5 rounded-full bg-emerald-400" style={{ width: `${Math.min(Math.abs(toNumber(account.converted_balance) ?? 0) / Math.max(toNumber(data.kpis.wealth.value) ?? 1, 1) * 100, 100)}%` }} />
                   </div>
                 </div>
-                <span className="font-mono text-xs">{formatMoney(account.converted_balance)}</span>
+                <span className="font-mono text-xs">{money(account.converted_balance)}</span>
               </div>
             ))}
           </div>
@@ -215,15 +230,15 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.1fr_0.95fr_1.05fr]">
-        <Panel title="Cuotas y próximos vencimientos">
+        <Panel title={t.dashboard.installmentsDue}>
           <TableLike rows={data.upcoming_installments.slice(0, 5).map((item) => [
             `${item.description} (${item.current_installment}/${item.total_installments})`,
             item.due_date,
-            formatMoney(item.converted_amount),
-          ])} empty="Sin cuotas pendientes" />
+            money(item.converted_amount),
+          ])} empty={t.dashboard.noInstallments} />
         </Panel>
 
-        <Panel title="Rendimiento de inversiones">
+        <Panel title={t.dashboard.investmentPerformance}>
           <div className="mb-3 h-16">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data.investments.map((item) => ({ name: item.name, value: toNumber(item.converted_current_value) ?? toNumber(item.current_value) ?? 0 }))}>
@@ -233,31 +248,31 @@ export default function DashboardPage() {
           </div>
           <TableLike rows={data.investments.slice(0, 5).map((item) => [
             item.name,
-            formatMoney(item.converted_current_value),
+            money(item.converted_current_value),
             `${formatFixed(item.return_pct, 1)}%`,
-          ])} empty="Sin inversiones cargadas" />
+          ])} empty={t.dashboard.noInvestments} />
         </Panel>
 
-        <Panel title="Movimientos recientes">
+        <Panel title={t.dashboard.recentMovements}>
           <TableLike rows={data.recent_movements.slice(0, 7).map((item) => [
             item.description,
             item.category ?? "-",
-            `${item.type === "income" ? "+" : "-"}${formatMoney(item.converted_amount)}`,
-          ])} empty="Sin movimientos recientes" />
+            `${item.type === "income" ? "+" : "-"}${money(item.converted_amount)}`,
+          ])} empty={t.dashboard.noMovements} />
         </Panel>
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1.1fr]">
-        <Panel title="Presupuesto vs real">
+        <Panel title={t.dashboard.budgetVsActual}>
           {data.budgets.length === 0 ? (
-            <EmptyState text="Sin presupuestos para el mes" />
+            <EmptyState text={t.dashboard.noBudgets} />
           ) : (
             <div className="space-y-3">
               {data.budgets.slice(0, 5).map((budget) => (
                 <ProgressRow
                   key={budget.budget_id}
                   label={budget.category}
-                  value={`${formatMoney(budget.actual_amount)} / ${formatMoney(budget.budget_amount)}`}
+                  value={`${money(budget.actual_amount)} / ${money(budget.budget_amount)}`}
                   percent={budget.percent_used}
                   color={budget.color}
                 />
@@ -266,10 +281,10 @@ export default function DashboardPage() {
           )}
         </Panel>
 
-        <Panel title="Metas de ahorro">
+        <Panel title={t.dashboard.savingGoals}>
           <div className="grid gap-3 md:grid-cols-2">
             {data.saving_goals.length === 0 ? (
-              <EmptyState text="Sin metas cargadas" />
+              <EmptyState text={t.dashboard.noSavingGoals} />
             ) : data.saving_goals.slice(0, 4).map((goal) => (
               <div key={goal.goal_id} className="rounded-lg border border-border p-4">
                 <div className="mb-3 flex items-center gap-3">
@@ -278,10 +293,10 @@ export default function DashboardPage() {
                   </span>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{goal.name}</p>
-                    <p className="text-xs text-muted-foreground">{formatMoney(goal.current_amount)} / {formatMoney(goal.target_amount)}</p>
+                    <p className="text-xs text-muted-foreground">{money(goal.current_amount)} / {money(goal.target_amount)}</p>
                   </div>
                 </div>
-                <ProgressRow label={goal.target_date ?? "Sin fecha objetivo"} value={`${formatFixed(goal.progress_pct, 0)}%`} percent={goal.progress_pct} color={goal.color} compact />
+                <ProgressRow label={goal.target_date ?? t.dashboard.noTargetDate} value={`${formatFixed(goal.progress_pct, 0)}%`} percent={goal.progress_pct} color={goal.color} compact />
               </div>
             ))}
           </div>
@@ -291,7 +306,7 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ title, value, change, icon, tone }: { title: string; value: number | string; change: number | string | null; icon: React.ReactNode; tone: "green" | "red" | "blue" | "cyan" }) {
+function KpiCard({ title, value, change, icon, tone, lang, t }: { title: string; value: number | string; change: number | string | null; icon: React.ReactNode; tone: "green" | "red" | "blue" | "cyan"; lang: Language; t: Translations }) {
   const tones = {
     green: "bg-emerald-500/15 text-emerald-300",
     red: "bg-red-500/15 text-red-300",
@@ -304,9 +319,9 @@ function KpiCard({ title, value, change, icon, tone }: { title: string; value: n
         <span className={`rounded-full p-3 ${tones[tone]}`}>{icon}</span>
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{title}</p>
-          <p className="truncate text-2xl font-bold">{formatMoney(value)}</p>
+          <p className="truncate text-2xl font-bold">{formatMoney(value, lang, t.dashboard.noQuote)}</p>
           <p className={`text-xs ${(toNumber(change) ?? 0) < 0 ? "text-red-300" : "text-emerald-300"}`}>
-            {formatPct(change)} vs período anterior
+            {formatPct(change, t.dashboard.noPreviousPeriod)} {t.dashboard.previousPeriod}
           </p>
         </div>
       </CardContent>

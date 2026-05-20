@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/lib/LanguageContext";
+import type { Language } from "@/lib/translations";
 
 const TYPES: InvestmentType[] = ["fixed_income", "fund", "stock", "crypto", "forex", "other"];
 const EMPTY: InvestmentPayload = {
@@ -21,8 +23,8 @@ const EMPTY: InvestmentPayload = {
   notes: "",
 };
 
-function formatAmount(amount: number, currency?: Currency) {
-  return `${currency?.symbol ?? "$"} ${amount.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
+function formatAmount(amount: number, currency: Currency | undefined, lang: Language) {
+  return `${currency?.symbol ?? "$"} ${amount.toLocaleString(lang === "es" ? "es-AR" : "en-US", { maximumFractionDigits: 2 })}`;
 }
 
 export default function InvestmentsPage() {
@@ -33,6 +35,7 @@ export default function InvestmentsPage() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { lang, t } = useLanguage();
   const currencyMap = useMemo(() => new Map(currencies.map((item) => [item.id, item])), [currencies]);
 
   const load = async () => {
@@ -43,13 +46,13 @@ export default function InvestmentsPage() {
       setCurrencies(currencyRows);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "No se pudieron cargar las inversiones");
+      setError(e instanceof Error ? e.message : t.investments.loadError);
     } finally {
       setLoading(false);
     }
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []);
 
   const openCreate = () => {
@@ -81,36 +84,38 @@ export default function InvestmentsPage() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Eliminar esta inversión?")) return;
+    if (!confirm(t.investments.confirmDelete)) return;
     await investmentsApi.delete(id);
     await load();
   };
+
+  const typeLabel = (type: InvestmentType) => t.enums[type];
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Inversiones</h1>
-          <p className="mt-1 text-muted-foreground">Carga valores invertidos y valor actual manualmente.</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t.investments.title}</h1>
+          <p className="mt-1 text-muted-foreground">{t.investments.subtitle}</p>
         </div>
-        <Button onClick={openCreate} disabled={currencies.length === 0}>+ Agregar inversión</Button>
+        <Button onClick={openCreate} disabled={currencies.length === 0}>{t.investments.add}</Button>
       </div>
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}
       <div className="rounded-lg border border-border">
         <Table>
-          <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Tipo</TableHead><TableHead>Moneda</TableHead><TableHead className="text-right">Invertido</TableHead><TableHead className="text-right">Valor actual</TableHead><TableHead className="text-right">Ganancia</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>{t.common.name}</TableHead><TableHead>{t.common.type}</TableHead><TableHead>{t.common.currency}</TableHead><TableHead className="text-right">{t.investments.invested}</TableHead><TableHead className="text-right">{t.investments.currentValue}</TableHead><TableHead className="text-right">{t.investments.gain}</TableHead><TableHead className="text-right">{t.common.actions}</TableHead></TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={7}>Cargando...</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={7}>Sin inversiones.</TableCell></TableRow> : items.map((item) => {
+            {loading ? <TableRow><TableCell colSpan={7}>{t.common.loading}</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={7}>{t.investments.noInvestments}</TableCell></TableRow> : items.map((item) => {
               const gain = item.current_value - item.invested_amount;
               return (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell><Badge variant="outline">{item.type}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{typeLabel(item.type)}</Badge></TableCell>
                   <TableCell>{item.currency.code}</TableCell>
-                  <TableCell className="text-right font-mono">{formatAmount(item.invested_amount, item.currency)}</TableCell>
-                  <TableCell className="text-right font-mono">{formatAmount(item.current_value, item.currency)}</TableCell>
-                  <TableCell className={`text-right font-mono ${gain >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatAmount(gain, item.currency)}</TableCell>
-                  <TableCell className="space-x-2 text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Editar</Button><Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>Eliminar</Button></TableCell>
+                  <TableCell className="text-right font-mono">{formatAmount(item.invested_amount, item.currency, lang)}</TableCell>
+                  <TableCell className="text-right font-mono">{formatAmount(item.current_value, item.currency, lang)}</TableCell>
+                  <TableCell className={`text-right font-mono ${gain >= 0 ? "text-emerald-400" : "text-red-400"}`}>{formatAmount(gain, item.currency, lang)}</TableCell>
+                  <TableCell className="space-x-2 text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(item)}>{t.common.edit}</Button><Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>{t.common.delete}</Button></TableCell>
                 </TableRow>
               );
             })}
@@ -120,31 +125,31 @@ export default function InvestmentsPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Editar inversión" : "Agregar inversión"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? t.investments.editDialog : t.investments.addDialog}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <Field label="Nombre"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label={t.common.name}><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Tipo">
+              <Field label={t.common.type}>
                 <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: (v ?? "other") as InvestmentType })}>
-                  <SelectTrigger><span className="text-sm">{form.type}</span></SelectTrigger>
-                  <SelectContent>{TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                  <SelectTrigger><span className="text-sm">{typeLabel(form.type)}</span></SelectTrigger>
+                  <SelectContent>{TYPES.map((type) => <SelectItem key={type} value={type}>{typeLabel(type)}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
-              <Field label="Moneda">
+              <Field label={t.common.currency}>
                 <Select value={form.currency_id} onValueChange={(v) => setForm({ ...form, currency_id: v ?? "" })}>
-                  <SelectTrigger><span className="text-sm">{currencyMap.get(form.currency_id)?.code ?? "Seleccionar"}</span></SelectTrigger>
+                  <SelectTrigger><span className="text-sm">{currencyMap.get(form.currency_id)?.code ?? t.common.select}</span></SelectTrigger>
                   <SelectContent>{currencies.map((item) => <SelectItem key={item.id} value={item.id}>{item.code}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              <Field label="Invertido"><Input type="number" min="0" step="0.01" placeholder="0" value={form.invested_amount === 0 ? "" : form.invested_amount} onChange={(e) => setForm({ ...form, invested_amount: parseFloat(e.target.value) || 0 })} /></Field>
-              <Field label="Valor actual"><Input type="number" min="0" step="0.01" placeholder="0" value={form.current_value === 0 ? "" : form.current_value} onChange={(e) => setForm({ ...form, current_value: parseFloat(e.target.value) || 0 })} /></Field>
-              <Field label="Tasa esperada"><Input type="number" step="0.01" value={form.expected_return_rate ?? ""} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setForm({ ...form, expected_return_rate: e.target.value ? parseFloat(e.target.value) : null })} /></Field>
+              <Field label={t.investments.invested}><Input type="number" min="0" step="0.01" placeholder="0" value={form.invested_amount === 0 ? "" : form.invested_amount} onChange={(e) => setForm({ ...form, invested_amount: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label={t.investments.currentValue}><Input type="number" min="0" step="0.01" placeholder="0" value={form.current_value === 0 ? "" : form.current_value} onChange={(e) => setForm({ ...form, current_value: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label={t.investments.expectedRate}><Input type="number" step="0.01" value={form.expected_return_rate ?? ""} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setForm({ ...form, expected_return_rate: e.target.value ? parseFloat(e.target.value) : null })} /></Field>
             </div>
-            <Field label="Notas"><Input value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+            <Field label={t.common.notes}><Input value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
           </div>
-          <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button onClick={save} disabled={!form.name || !form.currency_id || form.invested_amount <= 0}>Guardar</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button><Button onClick={save} disabled={!form.name || !form.currency_id || form.invested_amount <= 0}>{t.common.save}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

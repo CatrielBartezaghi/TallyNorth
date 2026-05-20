@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Settings } from "lucide-react";
 import {
-  accountsApi,
   categoriesApi,
   creditCardsApi,
   installmentsApi,
@@ -12,7 +13,6 @@ import {
   type Currency,
   type Category,
 } from "@/lib/api";
-import Link from "next/link";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -26,7 +26,8 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Settings } from "lucide-react";
+import { useLanguage } from "@/lib/LanguageContext";
+import type { Language } from "@/lib/translations";
 
 interface PurchaseForm {
   credit_card_id: string;
@@ -36,6 +37,17 @@ interface PurchaseForm {
   starting_installment: number;
   purchase_date: string;
   category_id: string;
+}
+
+interface ImportRow {
+  id: number;
+  purchase_date: string;
+  description: string;
+  installment_amount: number;
+  installments: number;
+  starting_installment: number;
+  category_id: string;
+  category: string;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -50,14 +62,18 @@ const EMPTY_PURCHASE_FORM: PurchaseForm = {
   category_id: "",
 };
 
-function formatDate(value: string) {
-  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US");
+function localeFor(lang: Language) {
+  return lang === "es" ? "es-AR" : "en-US";
 }
 
-function formatAmount(amount: number | null, currency?: Currency) {
-  if (amount === null) return "No limit";
-  if (!currency) return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${currency.symbol} ${amount.toLocaleString("en-US", {
+function formatDate(value: string, lang: Language) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString(localeFor(lang));
+}
+
+function formatAmount(amount: number | null, currency: Currency | undefined, lang: Language, noLimit: string) {
+  if (amount === null) return noLimit;
+  if (!currency) return amount.toLocaleString(localeFor(lang), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${currency.symbol} ${amount.toLocaleString(localeFor(lang), {
     minimumFractionDigits: currency.decimal_places,
     maximumFractionDigits: currency.decimal_places,
   })}`;
@@ -66,24 +82,19 @@ function formatAmount(amount: number | null, currency?: Currency) {
 export default function CreditCardsPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [cards, setCards] = useState<CreditCard[]>([]);
-
   const [selectedCardId, setSelectedCardId] = useState<string>("all");
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Purchase Dialog state
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
   const [purchaseForm, setPurchaseForm] = useState<PurchaseForm>(EMPTY_PURCHASE_FORM);
   const [savingPurchase, setSavingPurchase] = useState(false);
-
-  // Import Dialog state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [importCardId, setImportCardId] = useState("");
   const [importing, setImporting] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const { lang, t } = useLanguage();
 
   const cardMap = useMemo(
     () => new Map(cards.map((card) => [card.id, card])),
@@ -91,13 +102,13 @@ export default function CreditCardsPage() {
   );
 
   const categoryMap = useMemo(
-    () => new Map(categories.map((c) => [c.id, c])),
+    () => new Map(categories.map((category) => [category.id, category])),
     [categories],
   );
 
   const filteredPurchases = useMemo(() => {
     if (selectedCardId === "all") return purchases;
-    return purchases.filter((p) => p.credit_card_id === selectedCardId);
+    return purchases.filter((purchase) => purchase.credit_card_id === selectedCardId);
   }, [purchases, selectedCardId]);
 
   const load = async (showLoading = true) => {
@@ -113,22 +124,21 @@ export default function CreditCardsPage() {
       setCategories(categoryRows);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load data");
+      setError(e instanceof Error ? e.message : t.common.errorLoadingData);
     } finally {
       setLoading(false);
     }
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(false); }, []);
 
-  // --- Purchase Handlers ---
   const openCreatePurchase = () => {
     setEditingPurchase(null);
     setPurchaseForm({
       ...EMPTY_PURCHASE_FORM,
       credit_card_id: selectedCardId !== "all" ? selectedCardId : (cards[0]?.id ?? ""),
-      purchase_date: today()
+      purchase_date: today(),
     });
     setPurchaseDialogOpen(true);
   };
@@ -140,7 +150,7 @@ export default function CreditCardsPage() {
       description: purchase.description,
       installment_amount: purchase.installment_amount,
       installments: purchase.installments,
-      starting_installment: 1, // Updates don't change installments
+      starting_installment: 1,
       purchase_date: purchase.purchase_date,
       category_id: purchase.category_id ?? "",
     });
@@ -165,30 +175,29 @@ export default function CreditCardsPage() {
       setPurchaseDialogOpen(false);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : t.creditCards.saveError);
     } finally {
       setSavingPurchase(false);
     }
   };
 
   const handlePurchaseDelete = async (id: string) => {
-    if (!confirm("Delete this purchase? This will also delete its installments.")) return;
+    if (!confirm(t.creditCards.confirmDelete)) return;
     try {
       await purchasesApi.delete(id);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      setError(e instanceof Error ? e.message : t.creditCards.deleteError);
     }
   };
 
-  // --- Installment Payment Handlers ---
   const handleInstallmentPaid = async (purchase: Purchase) => {
     const nextPending = purchase.installment_rows.find((installment) => !installment.is_paid);
     if (!nextPending) return;
     const card = cardMap.get(purchase.credit_card_id);
 
     if (!card?.payment_account_id) {
-      alert("Please link a payment account (e.g. checking account) to this credit card in 'Manage Cards' before paying.");
+      alert(t.creditCards.paymentAccountRequired);
       return;
     }
 
@@ -206,7 +215,6 @@ export default function CreditCardsPage() {
     await load();
   };
 
-  // --- Import Handlers ---
   const openImport = () => {
     setImportRows([]);
     setImportCardId(selectedCardId !== "all" ? selectedCardId : (cards[0]?.id ?? ""));
@@ -217,20 +225,20 @@ export default function CreditCardsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
       const dataLines = lines.slice(1);
       const parsed = dataLines.map((line, index) => {
-        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(s => s.replace(/^"|"$/g, '').trim());
-        const [date, description, amount, current_inst_str, total_inst_str, category] = parts;
-        
-        let starting_installment = parseInt(current_inst_str) || 1;
-        let total_installments = parseInt(total_inst_str) || 1;
+        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map((part) => part.replace(/^"|"$/g, "").trim());
+        const [date, description, amount, currentInstallment, totalInstallments, category] = parts;
+
+        const startingInstallment = parseInt(currentInstallment) || 1;
+        const installments = parseInt(totalInstallments) || 1;
 
         let matchedCategoryId = "";
         if (category) {
-          const match = categories.find(c => c.name.toLowerCase() === category.toLowerCase());
+          const match = categories.find((item) => item.name.toLowerCase() === category.toLowerCase());
           if (match) matchedCategoryId = match.id;
         }
 
@@ -239,8 +247,8 @@ export default function CreditCardsPage() {
           purchase_date: date || "",
           description: description || "",
           installment_amount: parseFloat(amount) || 0,
-          installments: total_installments,
-          starting_installment: starting_installment,
+          installments,
+          starting_installment: startingInstallment,
           category_id: matchedCategoryId,
           category: category || "",
         };
@@ -253,7 +261,7 @@ export default function CreditCardsPage() {
   const handleImportSave = async () => {
     setImporting(true);
     try {
-      const payload = importRows.map(row => ({
+      const payload = importRows.map((row) => ({
         credit_card_id: importCardId,
         description: row.description,
         total_amount: row.installment_amount * row.installments,
@@ -267,19 +275,21 @@ export default function CreditCardsPage() {
       setImportDialogOpen(false);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Import failed");
+      setError(e instanceof Error ? e.message : t.creditCards.importError);
     } finally {
       setImporting(false);
     }
   };
 
+  const money = (amount: number | null, currency?: Currency) => formatAmount(amount, currency, lang, t.creditCards.noLimit);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Credit Cards</h1>
-          <p className="text-muted-foreground mt-1">
-            Track card expenses, installments, and statement dues.
+          <h1 className="text-3xl font-bold tracking-tight">{t.creditCards.title}</h1>
+          <p className="mt-1 text-muted-foreground">
+            {t.creditCards.subtitle}
           </p>
         </div>
 
@@ -287,18 +297,18 @@ export default function CreditCardsPage() {
           <Select value={selectedCardId} onValueChange={(v: string | null) => setSelectedCardId(v ?? "all")}>
             <SelectTrigger className="w-[200px]">
               <SelectValue>
-                {selectedCardId === "all" ? "All Cards" : cardMap.get(selectedCardId)?.name}
+                {selectedCardId === "all" ? t.creditCards.allCards : cardMap.get(selectedCardId)?.name}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Cards</SelectItem>
-              {cards.map(card => (
+              <SelectItem value="all">{t.creditCards.allCards}</SelectItem>
+              {cards.map((card) => (
                 <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
 
-          <Link href="/credit-cards/manage" className={buttonVariants({ variant: "outline", size: "icon" })} title="Manage Cards">
+          <Link href="/credit-cards/manage" className={buttonVariants({ variant: "outline", size: "icon" })} title={t.creditCards.manageCards}>
             <Settings size={18} />
           </Link>
         </div>
@@ -306,16 +316,16 @@ export default function CreditCardsPage() {
 
       <div className="flex gap-2">
         <Button variant="outline" onClick={openImport} disabled={cards.length === 0}>
-          Import CSV
+          {t.creditCards.importCsv}
         </Button>
         <Button onClick={openCreatePurchase} disabled={cards.length === 0}>
-          + Add Card Expense
+          {t.creditCards.addExpense}
         </Button>
       </div>
 
       {cards.length === 0 && !loading && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
-          No credit cards found. Click the gear icon above to add your first card.
+          {t.creditCards.noCards}
         </div>
       )}
 
@@ -326,64 +336,62 @@ export default function CreditCardsPage() {
       )}
 
       {loading ? (
-        <p className="text-muted-foreground text-sm">Loading...</p>
+        <p className="text-sm text-muted-foreground">{t.common.loading}</p>
       ) : filteredPurchases.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center text-muted-foreground">
-          <p className="text-lg">No card expenses yet.</p>
-          <p className="text-sm mt-1">Click "+ Add Card Expense" to create your first one.</p>
+          <p className="text-lg">{t.creditCards.noExpenses}</p>
+          <p className="mt-1 text-sm">{t.creditCards.emptyHint}</p>
         </div>
       ) : (
         <div className="rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                {selectedCardId === "all" && <TableHead>Card</TableHead>}
-                <TableHead>Description</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead>Payments</TableHead>
-                <TableHead className="text-right">Per Payment</TableHead>
-                <TableHead>First Due</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t.common.date}</TableHead>
+                {selectedCardId === "all" && <TableHead>{t.creditCards.card}</TableHead>}
+                <TableHead>{t.common.description}</TableHead>
+                <TableHead>{t.common.category}</TableHead>
+                <TableHead className="text-right">{t.creditCards.total}</TableHead>
+                <TableHead>{t.creditCards.payments}</TableHead>
+                <TableHead className="text-right">{t.creditCards.perPayment}</TableHead>
+                <TableHead>{t.creditCards.firstDue}</TableHead>
+                <TableHead className="text-right">{t.common.actions}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredPurchases.map((purchase) => {
                 const card = cardMap.get(purchase.credit_card_id);
+                const implicitlyPaid = purchase.installments - purchase.installment_rows.length;
+                const explicitlyPaid = purchase.installment_rows.filter((installment) => installment.is_paid).length;
                 return (
                   <TableRow key={purchase.id}>
-                    <TableCell>{formatDate(purchase.purchase_date)}</TableCell>
-                    {selectedCardId === "all" && <TableCell className="font-medium">{card?.name ?? "Unknown"}</TableCell>}
+                    <TableCell>{formatDate(purchase.purchase_date, lang)}</TableCell>
+                    {selectedCardId === "all" && <TableCell className="font-medium">{card?.name ?? t.common.unknown}</TableCell>}
                     <TableCell>{purchase.description}</TableCell>
                     <TableCell className="text-muted-foreground">{purchase.category_id ? categoryMap.get(purchase.category_id)?.name : (purchase.category ?? "-")}</TableCell>
-                    <TableCell className="text-right font-mono">{formatAmount(purchase.total_amount, card?.currency)}</TableCell>
+                    <TableCell className="text-right font-mono">{money(purchase.total_amount, card?.currency)}</TableCell>
                     <TableCell>
                       {purchase.installments === 1 ? (
                         <Badge variant="secondary">1x</Badge>
                       ) : (
                         <Badge variant="outline">{purchase.installments}x</Badge>
                       )}
-                      <span className="ml-2 text-muted-foreground text-xs">
-                        {(() => {
-                          const implicitlyPaid = purchase.installments - purchase.installment_rows.length;
-                          const explicitlyPaid = purchase.installment_rows.filter((i) => i.is_paid).length;
-                          return `(${implicitlyPaid + explicitlyPaid}/${purchase.installments} paid)`;
-                        })()}
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        ({implicitlyPaid + explicitlyPaid}/{purchase.installments} {t.creditCards.paid})
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-mono">{formatAmount(purchase.installment_amount, card?.currency)}</TableCell>
-                    <TableCell>{formatDate(purchase.first_installment_date)}</TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button variant="ghost" size="sm" onClick={() => handleInstallmentPaid(purchase)} disabled={purchase.installment_rows.every((i) => i.is_paid)}>
-                        Pay next
+                    <TableCell className="text-right font-mono">{money(purchase.installment_amount, card?.currency)}</TableCell>
+                    <TableCell>{formatDate(purchase.first_installment_date, lang)}</TableCell>
+                    <TableCell className="space-x-2 text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleInstallmentPaid(purchase)} disabled={purchase.installment_rows.every((installment) => installment.is_paid)}>
+                        {t.creditCards.payNext}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleInstallmentReopen(purchase)} disabled={purchase.installment_rows.every((i) => !i.is_paid)}>
-                        Reopen
+                      <Button variant="ghost" size="sm" onClick={() => handleInstallmentReopen(purchase)} disabled={purchase.installment_rows.every((installment) => !installment.is_paid)}>
+                        {t.creditCards.reopen}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openEditPurchase(purchase)}>Edit</Button>
+                      <Button variant="ghost" size="sm" onClick={() => openEditPurchase(purchase)}>{t.common.edit}</Button>
                       <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handlePurchaseDelete(purchase.id)}>
-                        Delete
+                        {t.common.delete}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -394,23 +402,22 @@ export default function CreditCardsPage() {
         </div>
       )}
 
-      {/* --- Purchase Dialog --- */}
       <Dialog open={purchaseDialogOpen} onOpenChange={setPurchaseDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingPurchase ? "Edit Card Expense" : "Add Card Expense"}</DialogTitle>
+            <DialogTitle>{editingPurchase ? t.creditCards.editDialog : t.creditCards.addDialog}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Credit Card</Label>
+              <Label>{t.creditCards.creditCard}</Label>
               <Select
                 value={purchaseForm.credit_card_id}
                 onValueChange={(v: string | null) => setPurchaseForm({ ...purchaseForm, credit_card_id: v ?? "" })}
                 disabled={!!editingPurchase}
               >
                 <SelectTrigger className="min-w-0">
-                  <span className="text-sm truncate block">
-                    {cardMap.get(purchaseForm.credit_card_id)?.name ?? "Select credit card"}
+                  <span className="block truncate text-sm">
+                    {cardMap.get(purchaseForm.credit_card_id)?.name ?? t.creditCards.selectCreditCard}
                   </span>
                 </SelectTrigger>
                 <SelectContent>
@@ -422,33 +429,33 @@ export default function CreditCardsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="purchase-description">Description</Label>
+              <Label htmlFor="purchase-description">{t.common.description}</Label>
               <Input
                 id="purchase-description"
-                placeholder="e.g. Supermarket, Laptop..."
+                placeholder={t.creditCards.placeholderDescription}
                 value={purchaseForm.description}
                 onChange={(e) => setPurchaseForm({ ...purchaseForm, description: e.target.value })}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Category</Label>
+              <Label>{t.common.category}</Label>
               <Select
                 value={purchaseForm.category_id}
                 onValueChange={(v: string | null) => setPurchaseForm({ ...purchaseForm, category_id: v ?? "" })}
               >
                 <SelectTrigger>
-                  <span className="text-sm truncate block">
-                    {purchaseForm.category_id ? categoryMap.get(purchaseForm.category_id)?.name : "None"}
+                  <span className="block truncate text-sm">
+                    {purchaseForm.category_id ? categoryMap.get(purchaseForm.category_id)?.name : t.common.none}
                   </span>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {categories.filter(c => c.type === "expense").map(c => (
-                    <SelectItem key={c.id} value={c.id}>
+                  <SelectItem value="">{t.common.none}</SelectItem>
+                  {categories.filter((category) => category.type === "expense" || category.type === "both").map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
                       <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: c.color }} />
-                        {c.name}
+                        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
+                        {category.name}
                       </div>
                     </SelectItem>
                   ))}
@@ -458,7 +465,7 @@ export default function CreditCardsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="installment-amount">Installment Amount</Label>
+                <Label htmlFor="installment-amount">{t.creditCards.installmentAmount}</Label>
                 <Input
                   id="installment-amount"
                   type="number"
@@ -471,7 +478,7 @@ export default function CreditCardsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="purchase-date">Statement Date</Label>
+                <Label htmlFor="purchase-date">{t.creditCards.statementDate}</Label>
                 <Input
                   id="purchase-date"
                   type="date"
@@ -484,7 +491,7 @@ export default function CreditCardsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="starting-installment">Current Installment</Label>
+                <Label htmlFor="starting-installment">{t.creditCards.currentInstallment}</Label>
                 <Input
                   id="starting-installment"
                   type="number"
@@ -496,7 +503,7 @@ export default function CreditCardsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="installments">Total Installments</Label>
+                <Label htmlFor="installments">{t.creditCards.totalInstallments}</Label>
                 <Input
                   id="installments"
                   type="number"
@@ -510,12 +517,12 @@ export default function CreditCardsPage() {
             </div>
             {editingPurchase && (
               <p className="text-xs text-muted-foreground">
-                Amount, card, installments, and purchase date are locked because they determine generated installments.
+                {t.creditCards.lockedFields}
               </p>
             )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setPurchaseDialogOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setPurchaseDialogOpen(false)}>{t.common.cancel}</Button>
             <Button
               onClick={handlePurchaseSave}
               disabled={
@@ -528,52 +535,51 @@ export default function CreditCardsPage() {
                 !purchaseForm.purchase_date
               }
             >
-              {savingPurchase ? "Saving..." : "Save"}
+              {savingPurchase ? t.common.saving : t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* --- Import Dialog --- */}
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Import Expenses from CSV</DialogTitle>
+            <DialogTitle>{t.creditCards.importTitle}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Credit Card</Label>
+                <Label>{t.creditCards.creditCard}</Label>
                 <Select value={importCardId} onValueChange={(v: string | null) => setImportCardId(v ?? "")}>
                   <SelectTrigger className="min-w-0">
-                    <span className="text-sm truncate block">{cardMap.get(importCardId)?.name ?? "Select"}</span>
+                    <span className="block truncate text-sm">{cardMap.get(importCardId)?.name ?? t.common.select}</span>
                   </SelectTrigger>
                   <SelectContent>
-                    {cards.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    {cards.map((card) => <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>CSV File</Label>
+                <Label>{t.creditCards.csvFile}</Label>
                 <Input type="file" accept=".csv" onChange={handleFileUpload} />
               </div>
             </div>
 
-            <div className="text-xs space-y-1">
-              <p className="font-medium text-foreground/70">Expected format:</p>
+            <div className="space-y-1 text-xs">
+              <p className="font-medium text-foreground/70">{t.creditCards.expectedFormat}</p>
               <p className="font-mono text-yellow-500">date, description, amount, current_installment, total_installments, category</p>
               <p className="font-mono text-yellow-500/80">2026-05-03, Supermarket, 150.50, 1, 1, Groceries</p>
               <p className="font-mono text-yellow-500/80">2026-05-01, New Laptop, 100.00, 12, 18, Electronics</p>
             </div>
 
             {importRows.length > 0 && (
-              <p className="text-sm text-green-500 font-medium">Ready to import {importRows.length} valid row(s).</p>
+              <p className="text-sm font-medium text-green-500">{t.creditCards.readyToImport.replace("{count}", String(importRows.length))}</p>
             )}
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setImportDialogOpen(false)}>{t.common.cancel}</Button>
             <Button onClick={handleImportSave} disabled={importing || importRows.length === 0 || !importCardId}>
-              {importing ? "Importing..." : "Confirm Import"}
+              {importing ? t.creditCards.importing : t.creditCards.confirmImport}
             </Button>
           </DialogFooter>
         </DialogContent>

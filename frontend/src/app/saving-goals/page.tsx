@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useLanguage } from "@/lib/LanguageContext";
+import type { Language } from "@/lib/translations";
 
 const EMPTY: SavingGoalPayload = {
   name: "",
@@ -19,8 +21,8 @@ const EMPTY: SavingGoalPayload = {
   icon: "",
 };
 
-function formatAmount(amount: number, currency?: Currency) {
-  return `${currency?.symbol ?? "$"} ${amount.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
+function formatAmount(amount: number, currency: Currency | undefined, lang: Language) {
+  return `${currency?.symbol ?? "$"} ${amount.toLocaleString(lang === "es" ? "es-AR" : "en-US", { maximumFractionDigits: 2 })}`;
 }
 
 export default function SavingGoalsPage() {
@@ -31,6 +33,7 @@ export default function SavingGoalsPage() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { lang, t } = useLanguage();
   const currencyMap = useMemo(() => new Map(currencies.map((item) => [item.id, item])), [currencies]);
 
   const load = async () => {
@@ -41,13 +44,13 @@ export default function SavingGoalsPage() {
       setCurrencies(currencyRows);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "No se pudieron cargar las metas");
+      setError(e instanceof Error ? e.message : t.savingGoals.loadError);
     } finally {
       setLoading(false);
     }
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []);
 
   const openCreate = () => {
@@ -79,7 +82,7 @@ export default function SavingGoalsPage() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Eliminar esta meta?")) return;
+    if (!confirm(t.savingGoals.confirmDelete)) return;
     await savingGoalsApi.delete(id);
     await load();
   };
@@ -88,24 +91,24 @@ export default function SavingGoalsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Metas de ahorro</h1>
-          <p className="mt-1 text-muted-foreground">Registra objetivos y avance acumulado.</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t.savingGoals.title}</h1>
+          <p className="mt-1 text-muted-foreground">{t.savingGoals.subtitle}</p>
         </div>
-        <Button onClick={openCreate} disabled={currencies.length === 0}>+ Agregar meta</Button>
+        <Button onClick={openCreate} disabled={currencies.length === 0}>{t.savingGoals.add}</Button>
       </div>
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}
       <div className="rounded-lg border border-border">
         <Table>
-          <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Moneda</TableHead><TableHead className="text-right">Actual</TableHead><TableHead className="text-right">Objetivo</TableHead><TableHead>Fecha objetivo</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>{t.common.name}</TableHead><TableHead>{t.common.currency}</TableHead><TableHead className="text-right">{t.savingGoals.currentAmount}</TableHead><TableHead className="text-right">{t.savingGoals.target}</TableHead><TableHead>{t.savingGoals.targetDate}</TableHead><TableHead className="text-right">{t.common.actions}</TableHead></TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={6}>Cargando...</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={6}>Sin metas.</TableCell></TableRow> : items.map((item) => (
+            {loading ? <TableRow><TableCell colSpan={6}>{t.common.loading}</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={6}>{t.savingGoals.noGoals}</TableCell></TableRow> : items.map((item) => (
               <TableRow key={item.id}>
                 <TableCell className="font-medium"><span className="mr-2 inline-block h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />{item.name}</TableCell>
                 <TableCell>{item.currency.code}</TableCell>
-                <TableCell className="text-right font-mono">{formatAmount(item.current_amount, item.currency)}</TableCell>
-                <TableCell className="text-right font-mono">{formatAmount(item.target_amount, item.currency)}</TableCell>
+                <TableCell className="text-right font-mono">{formatAmount(item.current_amount, item.currency, lang)}</TableCell>
+                <TableCell className="text-right font-mono">{formatAmount(item.target_amount, item.currency, lang)}</TableCell>
                 <TableCell>{item.target_date ?? "-"}</TableCell>
-                <TableCell className="space-x-2 text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Editar</Button><Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>Eliminar</Button></TableCell>
+                <TableCell className="space-x-2 text-right"><Button variant="ghost" size="sm" onClick={() => openEdit(item)}>{t.common.edit}</Button><Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>{t.common.delete}</Button></TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -114,28 +117,28 @@ export default function SavingGoalsPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Editar meta" : "Agregar meta"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? t.savingGoals.editDialog : t.savingGoals.addDialog}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <Field label="Nombre"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label={t.common.name}><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Moneda">
+              <Field label={t.common.currency}>
                 <Select value={form.currency_id} onValueChange={(v) => setForm({ ...form, currency_id: v ?? "" })}>
-                  <SelectTrigger><span className="text-sm">{currencyMap.get(form.currency_id)?.code ?? "Seleccionar"}</span></SelectTrigger>
+                  <SelectTrigger><span className="text-sm">{currencyMap.get(form.currency_id)?.code ?? t.common.select}</span></SelectTrigger>
                   <SelectContent>{currencies.map((item) => <SelectItem key={item.id} value={item.id}>{item.code}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
-              <Field label="Color"><Input type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} /></Field>
+              <Field label={t.common.color}><Input type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} /></Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Monto actual"><Input type="number" min="0" step="0.01" placeholder="0" value={form.current_amount === 0 ? "" : form.current_amount} onChange={(e) => setForm({ ...form, current_amount: parseFloat(e.target.value) || 0 })} /></Field>
-              <Field label="Objetivo"><Input type="number" min="0" step="0.01" placeholder="0" value={form.target_amount === 0 ? "" : form.target_amount} onChange={(e) => setForm({ ...form, target_amount: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label={t.savingGoals.currentAmount}><Input type="number" min="0" step="0.01" placeholder="0" value={form.current_amount === 0 ? "" : form.current_amount} onChange={(e) => setForm({ ...form, current_amount: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label={t.savingGoals.target}><Input type="number" min="0" step="0.01" placeholder="0" value={form.target_amount === 0 ? "" : form.target_amount} onChange={(e) => setForm({ ...form, target_amount: parseFloat(e.target.value) || 0 })} /></Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Fecha objetivo"><Input type="date" value={form.target_date ?? ""} onChange={(e) => setForm({ ...form, target_date: e.target.value || null })} /></Field>
-              <Field label="Icono"><Input value={form.icon ?? ""} onChange={(e) => setForm({ ...form, icon: e.target.value })} /></Field>
+              <Field label={t.savingGoals.targetDate}><Input type="date" value={form.target_date ?? ""} onChange={(e) => setForm({ ...form, target_date: e.target.value || null })} /></Field>
+              <Field label={t.savingGoals.icon}><Input value={form.icon ?? ""} onChange={(e) => setForm({ ...form, icon: e.target.value })} /></Field>
             </div>
           </div>
-          <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button onClick={save} disabled={!form.name || !form.currency_id || form.target_amount <= 0}>Guardar</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button><Button onClick={save} disabled={!form.name || !form.currency_id || form.target_amount <= 0}>{t.common.save}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

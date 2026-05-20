@@ -22,27 +22,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(() => Cookies.get("token") ?? null);
+  const [isLoading, setIsLoading] = useState(() => Boolean(Cookies.get("token")));
 
   useEffect(() => {
-    const savedToken = Cookies.get("token");
-    if (savedToken) {
-      setToken(savedToken);
-      authApi.me(savedToken)
-        .then((data) => {
-          setUser(data);
-        })
-        .catch(() => {
-          logout();
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    } else {
-      setIsLoading(false);
-    }
-  }, []);
+    if (!token) return;
+
+    authApi.me(token)
+      .then((data) => {
+        setUser(data);
+      })
+      .catch(() => {
+        Cookies.remove("token");
+        setToken(null);
+        setUser(null);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [token]);
 
   const login = (newToken: string, newUser: User) => {
     Cookies.set("token", newToken, { expires: 7 }); // 7 days

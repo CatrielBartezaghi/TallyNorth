@@ -12,10 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLanguage } from "@/lib/LanguageContext";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 interface CurrencyForm {
   code: string;
   name: string;
@@ -32,9 +30,6 @@ const EMPTY_FORM: CurrencyForm = {
   is_crypto: false,
 };
 
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 export default function CurrenciesPage() {
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +38,7 @@ export default function CurrenciesPage() {
   const [editing, setEditing] = useState<Currency | null>(null);
   const [form, setForm] = useState<CurrencyForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const { t } = useLanguage();
 
   const load = async (showLoading = true) => {
     try {
@@ -50,13 +46,13 @@ export default function CurrenciesPage() {
       setCurrencies(await currenciesApi.list());
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load currencies");
+      setError(e instanceof Error ? e.message : t.currencies.loadError);
     } finally {
       setLoading(false);
     }
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(false); }, []);
 
   const openCreate = () => {
@@ -65,9 +61,9 @@ export default function CurrenciesPage() {
     setDialogOpen(true);
   };
 
-  const openEdit = (c: Currency) => {
-    setEditing(c);
-    setForm({ code: c.code, name: c.name, symbol: c.symbol, decimal_places: c.decimal_places, is_crypto: c.is_crypto });
+  const openEdit = (currency: Currency) => {
+    setEditing(currency);
+    setForm({ code: currency.code, name: currency.name, symbol: currency.symbol, decimal_places: currency.decimal_places, is_crypto: currency.is_crypto });
     setDialogOpen(true);
   };
 
@@ -87,33 +83,32 @@ export default function CurrenciesPage() {
       setDialogOpen(false);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : t.currencies.saveError);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this currency? This will fail if any accounts or credit cards use it.")) return;
+    if (!confirm(t.currencies.confirmDelete)) return;
     try {
       await currenciesApi.delete(id);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      setError(e instanceof Error ? e.message : t.currencies.deleteError);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Currencies</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage fiat and crypto currencies used across accounts and credit cards.
+          <h1 className="text-3xl font-bold tracking-tight">{t.currencies.title}</h1>
+          <p className="mt-1 text-muted-foreground">
+            {t.currencies.subtitle}
           </p>
         </div>
-        <Button onClick={openCreate}>+ Add Currency</Button>
+        <Button onClick={openCreate}>{t.currencies.add}</Button>
       </div>
 
       {error && (
@@ -122,45 +117,44 @@ export default function CurrenciesPage() {
         </div>
       )}
 
-      {/* Table */}
       {loading ? (
-        <p className="text-muted-foreground text-sm">Loading...</p>
+        <p className="text-sm text-muted-foreground">{t.common.loading}</p>
       ) : currencies.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center text-muted-foreground">
-          <p className="text-lg">No currencies yet.</p>
-          <p className="text-sm mt-1">Click &quot;Add Currency&quot; to create one.</p>
+          <p className="text-lg">{t.currencies.noCurrencies}</p>
+          <p className="mt-1 text-sm">{t.currencies.emptyHint}</p>
         </div>
       ) : (
         <div className="rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Symbol</TableHead>
-                <TableHead>Decimals</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t.currencies.code}</TableHead>
+                <TableHead>{t.common.name}</TableHead>
+                <TableHead>{t.currencies.symbol}</TableHead>
+                <TableHead>{t.currencies.decimals}</TableHead>
+                <TableHead>{t.common.type}</TableHead>
+                <TableHead className="text-right">{t.common.actions}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {currencies.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-mono font-semibold">{c.code}</TableCell>
-                  <TableCell>{c.name}</TableCell>
-                  <TableCell className="font-mono text-lg">{c.symbol}</TableCell>
-                  <TableCell>{c.decimal_places}</TableCell>
+              {currencies.map((currency) => (
+                <TableRow key={currency.id}>
+                  <TableCell className="font-mono font-semibold">{currency.code}</TableCell>
+                  <TableCell>{currency.name}</TableCell>
+                  <TableCell className="font-mono text-lg">{currency.symbol}</TableCell>
+                  <TableCell>{currency.decimal_places}</TableCell>
                   <TableCell>
-                    {c.is_crypto ? (
-                      <Badge variant="outline" className="text-amber-400 border-amber-400/40">Crypto</Badge>
+                    {currency.is_crypto ? (
+                      <Badge variant="outline" className="border-amber-400/40 text-amber-400">{t.enums.crypto}</Badge>
                     ) : (
-                      <Badge variant="outline" className="text-blue-400 border-blue-400/40">Fiat</Badge>
+                      <Badge variant="outline" className="border-blue-400/40 text-blue-400">{t.enums.fiat}</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(c)}>Edit</Button>
-                    <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleDelete(c.id)}>
-                      Delete
+                  <TableCell className="space-x-2 text-right">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(currency)}>{t.common.edit}</Button>
+                    <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleDelete(currency.id)}>
+                      {t.common.delete}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -170,19 +164,18 @@ export default function CurrenciesPage() {
         </div>
       )}
 
-      {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit Currency" : "Add Currency"}</DialogTitle>
+            <DialogTitle>{editing ? t.currencies.editDialog : t.currencies.addDialog}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code">{t.currencies.code}</Label>
                 <Input
                   id="code"
-                  placeholder="e.g. ARS, BTC"
+                  placeholder={t.currencies.placeholderCode}
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
                   disabled={!!editing}
@@ -190,10 +183,10 @@ export default function CurrenciesPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="symbol">Symbol</Label>
+                <Label htmlFor="symbol">{t.currencies.symbol}</Label>
                 <Input
                   id="symbol"
-                  placeholder="e.g. $, BTC, EUR"
+                  placeholder={t.currencies.placeholderSymbol}
                   value={form.symbol}
                   onChange={(e) => setForm({ ...form, symbol: e.target.value })}
                   maxLength={10}
@@ -201,17 +194,17 @@ export default function CurrenciesPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">{t.common.name}</Label>
               <Input
                 id="name"
-                placeholder="e.g. Argentine Peso"
+                placeholder={t.currencies.placeholderName}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="decimals">Decimal places</Label>
+                <Label htmlFor="decimals">{t.currencies.decimalPlaces}</Label>
                 <Input
                   id="decimals"
                   type="number"
@@ -223,30 +216,30 @@ export default function CurrenciesPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Type</Label>
+                <Label>{t.common.type}</Label>
                 <div className="flex items-center gap-3 pt-2">
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, is_crypto: false })}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${!form.is_crypto ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}
+                    className={`rounded-md border px-3 py-1 text-sm transition-colors ${!form.is_crypto ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}
                   >
-                    Fiat
+                    {t.enums.fiat}
                   </button>
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, is_crypto: true })}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${form.is_crypto ? "border-amber-400 bg-amber-400/10 text-amber-400" : "border-border text-muted-foreground"}`}
+                    className={`rounded-md border px-3 py-1 text-sm transition-colors ${form.is_crypto ? "border-amber-400 bg-amber-400/10 text-amber-400" : "border-border text-muted-foreground"}`}
                   >
-                    Crypto
+                    {t.enums.crypto}
                   </button>
                 </div>
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>{t.common.cancel}</Button>
             <Button onClick={handleSave} disabled={saving || !form.code || !form.name || !form.symbol}>
-              {saving ? "Saving..." : "Save"}
+              {saving ? t.common.saving : t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>

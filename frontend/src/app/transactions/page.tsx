@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   accountsApi,
   categoriesApi,
@@ -24,6 +25,8 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select";
+import { useLanguage } from "@/lib/LanguageContext";
+import type { Language } from "@/lib/translations";
 
 interface TransactionForm {
   account_id: string;
@@ -70,16 +73,20 @@ const TYPE_COLORS: Record<TransactionType, string> = {
   expense: "text-red-400 border-red-400/40",
 };
 
-function formatAmount(amount: number, account?: Account) {
-  if (!account) return amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${account.currency.symbol} ${amount.toLocaleString("en-US", {
+function localeFor(lang: Language) {
+  return lang === "es" ? "es-AR" : "en-US";
+}
+
+function formatAmount(amount: number, lang: Language, account?: Account) {
+  if (!account) return amount.toLocaleString(localeFor(lang), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${account.currency.symbol} ${amount.toLocaleString(localeFor(lang), {
     minimumFractionDigits: account.currency.decimal_places,
     maximumFractionDigits: account.currency.decimal_places,
   })}`;
 }
 
-function formatDate(value: string) {
-  return new Date(`${value}T00:00:00`).toLocaleDateString("en-US");
+function formatDate(value: string, lang: Language) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString(localeFor(lang));
 }
 
 export default function TransactionsPage() {
@@ -93,6 +100,7 @@ export default function TransactionsPage() {
   const [editing, setEditing] = useState<Transaction | null>(null);
   const [form, setForm] = useState<TransactionForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const { lang, t } = useLanguage();
 
   const accountMap = useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
@@ -100,7 +108,7 @@ export default function TransactionsPage() {
   );
 
   const categoryMap = useMemo(
-    () => new Map(categories.map((c) => [c.id, c])),
+    () => new Map(categories.map((category) => [category.id, category])),
     [categories],
   );
 
@@ -123,7 +131,7 @@ export default function TransactionsPage() {
       setCategories(categoryRows);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load data");
+      setError(e instanceof Error ? e.message : t.common.errorLoadingData);
     } finally {
       setLoading(false);
     }
@@ -176,19 +184,19 @@ export default function TransactionsPage() {
       setDialogOpen(false);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Save failed");
+      setError(e instanceof Error ? e.message : t.transactions.saveError);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this transaction?")) return;
+    if (!confirm(t.transactions.confirmDelete)) return;
     try {
       await transactionsApi.delete(id);
       await load();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      setError(e instanceof Error ? e.message : t.transactions.deleteError);
     }
   };
 
@@ -201,23 +209,26 @@ export default function TransactionsPage() {
     await load(true, EMPTY_FILTERS);
   };
 
+  const transactionTypeLabel = (type: TransactionType) => t.enums[type];
+  const recurrenceLabel = (rule: RecurrenceRule) => t.enums[rule];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Transactions</h1>
-          <p className="text-muted-foreground mt-1">
-            Track income and expenses across your accounts.
+          <h1 className="text-3xl font-bold tracking-tight">{t.transactions.title}</h1>
+          <p className="mt-1 text-muted-foreground">
+            {t.transactions.subtitle}
           </p>
         </div>
         <Button onClick={openCreate} disabled={accounts.length === 0}>
-          + Add Transaction
+          {t.transactions.add}
         </Button>
       </div>
 
       {accounts.length === 0 && !loading && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
-          No accounts found. Go to <a href="/accounts" className="underline">Accounts</a> to add one first.
+          {t.transactions.noAccounts} <Link href="/accounts" className="underline">{t.accounts.title}</Link>
         </div>
       )}
 
@@ -229,18 +240,18 @@ export default function TransactionsPage() {
 
       <div className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="space-y-1.5">
-          <Label>Account</Label>
+          <Label>{t.transactions.account}</Label>
           <Select
             value={filters.account_id}
             onValueChange={(v: string | null) => setFilters({ ...filters, account_id: v ?? "" })}
           >
             <SelectTrigger className="w-full min-w-0">
-              <span className="text-sm truncate block">
-                {filters.account_id ? accountMap.get(filters.account_id)?.name : "All accounts"}
+              <span className="block truncate text-sm">
+                {filters.account_id ? accountMap.get(filters.account_id)?.name : t.transactions.allAccounts}
               </span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All accounts</SelectItem>
+              <SelectItem value="">{t.transactions.allAccounts}</SelectItem>
               {accounts.map((account) => (
                 <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>
               ))}
@@ -248,55 +259,55 @@ export default function TransactionsPage() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label>Type</Label>
+          <Label>{t.common.type}</Label>
           <Select
             value={filters.type}
             onValueChange={(v: string | null) => setFilters({ ...filters, type: (v ?? "all") as TransactionFilters["type"] })}
           >
             <SelectTrigger className="w-full">
-              <span className="text-sm capitalize">{filters.type}</span>
+              <span className="text-sm">{filters.type === "all" ? t.common.all : transactionTypeLabel(filters.type)}</span>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="income">Income</SelectItem>
-              <SelectItem value="expense">Expense</SelectItem>
+              <SelectItem value="all">{t.common.all}</SelectItem>
+              <SelectItem value="income">{t.enums.income}</SelectItem>
+              <SelectItem value="expense">{t.enums.expense}</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="date-from">From</Label>
+          <Label htmlFor="date-from">{t.transactions.from}</Label>
           <Input id="date-from" type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="date-to">To</Label>
+          <Label htmlFor="date-to">{t.transactions.to}</Label>
           <Input id="date-to" type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} />
         </div>
         <div className="flex items-end gap-2">
-          <Button onClick={applyFilters}>Apply</Button>
-          <Button variant="ghost" onClick={clearFilters}>Clear</Button>
+          <Button onClick={applyFilters}>{t.common.apply}</Button>
+          <Button variant="ghost" onClick={clearFilters}>{t.common.clear}</Button>
         </div>
       </div>
 
       {loading ? (
-        <p className="text-muted-foreground text-sm">Loading...</p>
+        <p className="text-sm text-muted-foreground">{t.common.loading}</p>
       ) : transactions.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-12 text-center text-muted-foreground">
-          <p className="text-lg">No transactions yet.</p>
-          <p className="text-sm mt-1">Click &quot;Add Transaction&quot; to create your first one.</p>
+          <p className="text-lg">{t.transactions.noTransactions}</p>
+          <p className="mt-1 text-sm">{t.transactions.emptyHint}</p>
         </div>
       ) : (
         <div className="rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Account</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Recurring</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t.common.date}</TableHead>
+                <TableHead>{t.transactions.account}</TableHead>
+                <TableHead>{t.common.type}</TableHead>
+                <TableHead>{t.common.description}</TableHead>
+                <TableHead>{t.common.category}</TableHead>
+                <TableHead>{t.transactions.recurring}</TableHead>
+                <TableHead className="text-right">{t.common.amount}</TableHead>
+                <TableHead className="text-right">{t.common.actions}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -304,11 +315,11 @@ export default function TransactionsPage() {
                 const account = accountMap.get(transaction.account_id);
                 return (
                   <TableRow key={transaction.id}>
-                    <TableCell>{formatDate(transaction.date)}</TableCell>
-                    <TableCell className="font-medium">{account?.name ?? "Unknown account"}</TableCell>
+                    <TableCell>{formatDate(transaction.date, lang)}</TableCell>
+                    <TableCell className="font-medium">{account?.name ?? t.transactions.unknownAccount}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={TYPE_COLORS[transaction.type]}>
-                        {transaction.type}
+                        {transactionTypeLabel(transaction.type)}
                       </Badge>
                     </TableCell>
                     <TableCell>{transaction.description}</TableCell>
@@ -316,24 +327,24 @@ export default function TransactionsPage() {
                     <TableCell>
                       {transaction.is_recurring ? (
                         <div className="flex flex-col items-start gap-1">
-                          <Badge variant="outline">{transaction.recurrence_rule}</Badge>
+                          {transaction.recurrence_rule && <Badge variant="outline">{recurrenceLabel(transaction.recurrence_rule)}</Badge>}
                           {transaction.end_date && (
                             <span className="text-xs text-muted-foreground">
-                              Until {formatDate(transaction.end_date)}
+                              {t.transactions.until} {formatDate(transaction.end_date, lang)}
                             </span>
                           )}
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">No</span>
+                        <span className="text-muted-foreground">{t.transactions.no}</span>
                       )}
                     </TableCell>
                     <TableCell className={`text-right font-mono ${transaction.type === "income" ? "text-emerald-400" : "text-red-400"}`}>
-                      {transaction.type === "income" ? "+" : "-"}{formatAmount(transaction.amount, account)}
+                      {transaction.type === "income" ? "+" : "-"}{formatAmount(transaction.amount, lang, account)}
                     </TableCell>
-                    <TableCell className="text-right space-x-2">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(transaction)}>Edit</Button>
+                    <TableCell className="space-x-2 text-right">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(transaction)}>{t.common.edit}</Button>
                       <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleDelete(transaction.id)}>
-                        Delete
+                        {t.common.delete}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -347,19 +358,19 @@ export default function TransactionsPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit Transaction" : "Add Transaction"}</DialogTitle>
+            <DialogTitle>{editing ? t.transactions.editDialog : t.transactions.addDialog}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Account</Label>
+                <Label>{t.transactions.account}</Label>
                 <Select
                   value={form.account_id}
                   onValueChange={(v: string | null) => setForm({ ...form, account_id: v ?? "" })}
                 >
                   <SelectTrigger className="min-w-0">
-                    <span className="text-sm truncate block">
-                      {accountMap.get(form.account_id)?.name ?? "Select account"}
+                    <span className="block truncate text-sm">
+                      {accountMap.get(form.account_id)?.name ?? t.transactions.selectAccount}
                     </span>
                   </SelectTrigger>
                   <SelectContent>
@@ -370,17 +381,17 @@ export default function TransactionsPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Type</Label>
+                <Label>{t.common.type}</Label>
                 <Select
                   value={form.type}
                   onValueChange={(v: string | null) => setForm({ ...form, type: (v ?? "expense") as TransactionType })}
                 >
                   <SelectTrigger>
-                    <span className="text-sm capitalize">{form.type}</span>
+                    <span className="text-sm">{transactionTypeLabel(form.type)}</span>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="income">Income</SelectItem>
-                    <SelectItem value="expense">Expense</SelectItem>
+                    <SelectItem value="income">{t.enums.income}</SelectItem>
+                    <SelectItem value="expense">{t.enums.expense}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -388,7 +399,7 @@ export default function TransactionsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="amount">Amount</Label>
+                <Label htmlFor="amount">{t.common.amount}</Label>
                 <Input
                   id="amount"
                   type="number"
@@ -400,7 +411,7 @@ export default function TransactionsPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="transaction-date">Date</Label>
+                <Label htmlFor="transaction-date">{t.common.date}</Label>
                 <Input
                   id="transaction-date"
                   type="date"
@@ -411,33 +422,33 @@ export default function TransactionsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{t.common.description}</Label>
               <Input
                 id="description"
-                placeholder="e.g. Grocery store"
+                placeholder={t.transactions.placeholderDescription}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label>Category</Label>
+              <Label>{t.common.category}</Label>
               <Select
                 value={form.category_id}
                 onValueChange={(v: string | null) => setForm({ ...form, category_id: v ?? "" })}
               >
                 <SelectTrigger>
-                  <span className="text-sm truncate block">
-                    {form.category_id ? categoryMap.get(form.category_id)?.name : "None"}
+                  <span className="block truncate text-sm">
+                    {form.category_id ? categoryMap.get(form.category_id)?.name : t.common.none}
                   </span>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {categories.filter(c => c.type === form.type).map(c => (
-                    <SelectItem key={c.id} value={c.id}>
+                  <SelectItem value="">{t.common.none}</SelectItem>
+                  {categories.filter((category) => category.type === form.type || category.type === "both").map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
                       <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: c.color }} />
-                        {c.name}
+                        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
+                        {category.name}
                       </div>
                     </SelectItem>
                   ))}
@@ -452,29 +463,29 @@ export default function TransactionsPage() {
                   checked={form.is_recurring}
                   onChange={(e) => setForm({ ...form, is_recurring: e.target.checked })}
                 />
-                Recurring
+                {t.transactions.recurring}
               </label>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label>Frequency</Label>
+                  <Label>{t.transactions.frequency}</Label>
                   <Select
                     value={form.recurrence_rule}
                     onValueChange={(v: string | null) => setForm({ ...form, recurrence_rule: (v ?? "monthly") as RecurrenceRule })}
                     disabled={!form.is_recurring}
                   >
                     <SelectTrigger className="w-full">
-                      <span className="text-sm capitalize">{form.recurrence_rule}</span>
+                      <span className="text-sm">{recurrenceLabel(form.recurrence_rule)}</span>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="yearly">Yearly</SelectItem>
+                      <SelectItem value="monthly">{t.enums.monthly}</SelectItem>
+                      <SelectItem value="weekly">{t.enums.weekly}</SelectItem>
+                      <SelectItem value="yearly">{t.enums.yearly}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="end-date">End Date</Label>
+                  <Label htmlFor="end-date">{t.transactions.endDate}</Label>
                   <Input
                     id="end-date"
                     type="date"
@@ -487,12 +498,12 @@ export default function TransactionsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>{t.common.cancel}</Button>
             <Button
               onClick={handleSave}
               disabled={saving || !form.account_id || !form.description || !form.date || form.amount <= 0}
             >
-              {saving ? "Saving..." : "Save"}
+              {saving ? t.common.saving : t.common.save}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useLanguage } from "@/lib/LanguageContext";
+import type { Language } from "@/lib/translations";
 
 const monthStart = () => new Date().toISOString().slice(0, 7) + "-01";
 
@@ -19,8 +21,8 @@ const EMPTY: BudgetPayload = {
   notes: "",
 };
 
-function formatAmount(amount: number, currency?: Currency) {
-  return `${currency?.symbol ?? "$"} ${amount.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
+function formatAmount(amount: number, currency: Currency | undefined, lang: Language) {
+  return `${currency?.symbol ?? "$"} ${amount.toLocaleString(lang === "es" ? "es-AR" : "en-US", { maximumFractionDigits: 2 })}`;
 }
 
 export default function BudgetsPage() {
@@ -32,6 +34,7 @@ export default function BudgetsPage() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { lang, t } = useLanguage();
 
   const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories]);
   const currencyMap = useMemo(() => new Map(currencies.map((item) => [item.id, item])), [currencies]);
@@ -49,13 +52,13 @@ export default function BudgetsPage() {
       setCurrencies(currencyRows);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "No se pudieron cargar los presupuestos");
+      setError(e instanceof Error ? e.message : t.budgets.loadError);
     } finally {
       setLoading(false);
     }
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []);
 
   const openCreate = () => {
@@ -85,7 +88,7 @@ export default function BudgetsPage() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm("Eliminar este presupuesto?")) return;
+    if (!confirm(t.budgets.confirmDelete)) return;
     await budgetsApi.delete(id);
     await load();
   };
@@ -94,26 +97,26 @@ export default function BudgetsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Presupuestos</h1>
-          <p className="mt-1 text-muted-foreground">Define límites mensuales por categoría.</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t.budgets.title}</h1>
+          <p className="mt-1 text-muted-foreground">{t.budgets.subtitle}</p>
         </div>
-        <Button onClick={openCreate} disabled={categories.length === 0 || currencies.length === 0}>+ Agregar presupuesto</Button>
+        <Button onClick={openCreate} disabled={categories.length === 0 || currencies.length === 0}>{t.budgets.add}</Button>
       </div>
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}
       <div className="rounded-lg border border-border">
         <Table>
-          <TableHeader><TableRow><TableHead>Mes</TableHead><TableHead>Categoría</TableHead><TableHead>Moneda</TableHead><TableHead className="text-right">Monto</TableHead><TableHead>Notas</TableHead><TableHead className="text-right">Acciones</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>{t.budgets.month}</TableHead><TableHead>{t.common.category}</TableHead><TableHead>{t.common.currency}</TableHead><TableHead className="text-right">{t.common.amount}</TableHead><TableHead>{t.common.notes}</TableHead><TableHead className="text-right">{t.common.actions}</TableHead></TableRow></TableHeader>
           <TableBody>
-            {loading ? <TableRow><TableCell colSpan={6}>Cargando...</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={6}>Sin presupuestos.</TableCell></TableRow> : items.map((item) => (
+            {loading ? <TableRow><TableCell colSpan={6}>{t.common.loading}</TableCell></TableRow> : items.length === 0 ? <TableRow><TableCell colSpan={6}>{t.budgets.noBudgets}</TableCell></TableRow> : items.map((item) => (
               <TableRow key={item.id}>
                 <TableCell>{item.period_start.slice(0, 7)}</TableCell>
                 <TableCell>{item.category.name}</TableCell>
                 <TableCell>{item.currency.code}</TableCell>
-                <TableCell className="text-right font-mono">{formatAmount(item.amount, item.currency)}</TableCell>
+                <TableCell className="text-right font-mono">{formatAmount(item.amount, item.currency, lang)}</TableCell>
                 <TableCell className="text-muted-foreground">{item.notes ?? "-"}</TableCell>
                 <TableCell className="space-x-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>Editar</Button>
-                  <Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>Eliminar</Button>
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(item)}>{t.common.edit}</Button>
+                  <Button variant="ghost" size="sm" className="text-red-400" onClick={() => remove(item.id)}>{t.common.delete}</Button>
                 </TableCell>
               </TableRow>
             ))}
@@ -123,29 +126,29 @@ export default function BudgetsPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Editar presupuesto" : "Agregar presupuesto"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? t.budgets.editDialog : t.budgets.addDialog}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Categoría">
+              <Field label={t.common.category}>
                 <Select value={form.category_id} onValueChange={(v) => setForm({ ...form, category_id: v ?? "" })}>
-                  <SelectTrigger><span className="truncate text-sm">{categoryMap.get(form.category_id)?.name ?? "Seleccionar"}</span></SelectTrigger>
+                  <SelectTrigger><span className="truncate text-sm">{categoryMap.get(form.category_id)?.name ?? t.common.select}</span></SelectTrigger>
                   <SelectContent>{categories.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
-              <Field label="Moneda">
+              <Field label={t.common.currency}>
                 <Select value={form.currency_id} onValueChange={(v) => setForm({ ...form, currency_id: v ?? "" })}>
-                  <SelectTrigger><span className="text-sm">{currencyMap.get(form.currency_id)?.code ?? "Seleccionar"}</span></SelectTrigger>
+                  <SelectTrigger><span className="text-sm">{currencyMap.get(form.currency_id)?.code ?? t.common.select}</span></SelectTrigger>
                   <SelectContent>{currencies.map((item) => <SelectItem key={item.id} value={item.id}>{item.code}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Mes"><Input type="month" value={form.period_start.slice(0, 7)} onChange={(e) => setForm({ ...form, period_start: `${e.target.value}-01` })} /></Field>
-              <Field label="Monto"><Input type="number" min="0" step="0.01" placeholder="0" value={form.amount === 0 ? "" : form.amount} onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })} /></Field>
+              <Field label={t.budgets.month}><Input type="month" value={form.period_start.slice(0, 7)} onChange={(e) => setForm({ ...form, period_start: `${e.target.value}-01` })} /></Field>
+              <Field label={t.common.amount}><Input type="number" min="0" step="0.01" placeholder="0" value={form.amount === 0 ? "" : form.amount} onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })} /></Field>
             </div>
-            <Field label="Notas"><Input value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+            <Field label={t.common.notes}><Input value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
           </div>
-          <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button><Button onClick={save} disabled={!form.category_id || !form.currency_id || form.amount <= 0}>Guardar</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setOpen(false)}>{t.common.cancel}</Button><Button onClick={save} disabled={!form.category_id || !form.currency_id || form.amount <= 0}>{t.common.save}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
