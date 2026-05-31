@@ -20,6 +20,7 @@ import {
   ArrowUpRight,
   Banknote,
   Landmark,
+  Repeat2,
   Target,
   Wallet,
 } from "lucide-react";
@@ -27,11 +28,21 @@ import { dashboardApi, type FullDashboardSummary } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { useLanguage } from "@/lib/LanguageContext";
 import type { Language, Translations } from "@/lib/translations";
 
 const chartText = "#94a3b8";
 const chartGrid = "#1f2937";
+const DASHBOARD_CURRENCIES = ["USD", "ARS"] as const;
+type DashboardCurrency = (typeof DASHBOARD_CURRENCIES)[number];
+const DASHBOARD_CURRENCY_STORAGE_KEY = "dashboard_currency";
+
+function initialDashboardCurrency(): DashboardCurrency {
+  if (typeof window === "undefined") return "USD";
+  const stored = window.localStorage.getItem(DASHBOARD_CURRENCY_STORAGE_KEY);
+  return DASHBOARD_CURRENCIES.includes(stored as DashboardCurrency) ? stored as DashboardCurrency : "USD";
+}
 
 function localeFor(lang: Language) {
   return lang === "es" ? "es-AR" : "en-US";
@@ -88,6 +99,7 @@ function shortMonth(value: string, lang: Language) {
 
 export default function DashboardPage() {
   const [range] = useState(defaultRange);
+  const [currency, setCurrency] = useState<DashboardCurrency>(initialDashboardCurrency);
   const [data, setData] = useState<FullDashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +113,7 @@ export default function DashboardPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const summary = await dashboardApi.summary({ from: range.from, to: range.to, currency: "USD" });
+        const summary = await dashboardApi.summary({ from: range.from, to: range.to, currency });
         if (mounted) {
           setData(summary);
           setError(null);
@@ -116,7 +128,14 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [authLoading, range, t.dashboard.loadError, user]);
+  }, [authLoading, currency, range, t.dashboard.loadError, user]);
+
+  const changeCurrency = (value: string | null) => {
+    if (!DASHBOARD_CURRENCIES.includes(value as DashboardCurrency)) return;
+    const nextCurrency = value as DashboardCurrency;
+    setCurrency(nextCurrency);
+    window.localStorage.setItem(DASHBOARD_CURRENCY_STORAGE_KEY, nextCurrency);
+  };
 
   const monthly = useMemo(
     () => data?.monthly_flow.map((item) => ({
@@ -141,8 +160,8 @@ export default function DashboardPage() {
     );
   }
 
-  const money = (value: number | string | null | undefined, currency = "USD") =>
-    formatMoney(value, lang, t.dashboard.noQuote, currency);
+  const money = (value: number | string | null | undefined, moneyCurrency = data.currency) =>
+    formatMoney(value, lang, t.dashboard.noQuote, moneyCurrency);
 
   return (
     <div className="space-y-4">
@@ -153,9 +172,22 @@ export default function DashboardPage() {
             {t.dashboard.subtitle} {data.currency}
           </p>
         </div>
-        <Badge variant="outline" className="border-cyan-400/30 text-cyan-300">
-          {data.date_from} / {data.date_to}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Select value={data.currency} onValueChange={changeCurrency}>
+            <SelectTrigger className="min-w-28 border-cyan-400/30 text-cyan-300">
+              <Repeat2 size={14} />
+              <span>{data.currency}</span>
+            </SelectTrigger>
+            <SelectContent>
+              {DASHBOARD_CURRENCIES.map((item) => (
+                <SelectItem key={item} value={item}>{item}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Badge variant="outline" className="border-cyan-400/30 text-cyan-300">
+            {data.date_from} / {data.date_to}
+          </Badge>
+        </div>
       </div>
 
       {data.warnings.length > 0 && (
@@ -165,10 +197,10 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard title={t.dashboard.income} icon={<ArrowUpRight size={22} />} value={data.kpis.income.value} change={data.kpis.income.change_pct} tone="green" lang={lang} t={t} />
-        <KpiCard title={t.dashboard.expenses} icon={<ArrowDownRight size={22} />} value={data.kpis.expenses.value} change={data.kpis.expenses.change_pct} tone="red" lang={lang} t={t} />
-        <KpiCard title={t.dashboard.netSavings} icon={<Wallet size={22} />} value={data.kpis.net_savings.value} change={data.kpis.net_savings.change_pct} tone="blue" lang={lang} t={t} />
-        <KpiCard title={t.dashboard.wealth} icon={<Landmark size={22} />} value={data.kpis.wealth.value} change={data.kpis.wealth.change_pct} tone="cyan" lang={lang} t={t} />
+        <KpiCard title={t.dashboard.income} icon={<ArrowUpRight size={22} />} value={data.kpis.income.value} change={data.kpis.income.change_pct} tone="green" lang={lang} t={t} currency={data.currency} />
+        <KpiCard title={t.dashboard.expenses} icon={<ArrowDownRight size={22} />} value={data.kpis.expenses.value} change={data.kpis.expenses.change_pct} tone="red" lang={lang} t={t} currency={data.currency} />
+        <KpiCard title={t.dashboard.netSavings} icon={<Wallet size={22} />} value={data.kpis.net_savings.value} change={data.kpis.net_savings.change_pct} tone="blue" lang={lang} t={t} currency={data.currency} />
+        <KpiCard title={t.dashboard.wealth} icon={<Landmark size={22} />} value={data.kpis.wealth.value} change={data.kpis.wealth.change_pct} tone="cyan" lang={lang} t={t} currency={data.currency} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.35fr_0.85fr_0.9fr]">
@@ -177,7 +209,7 @@ export default function DashboardPage() {
             <LineChart data={monthly}>
               <CartesianGrid stroke={chartGrid} vertical={false} />
               <XAxis dataKey="label" stroke={chartText} fontSize={12} tickLine={false} axisLine={false} />
-              <YAxis stroke={chartText} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `$${Math.round(Number(v) / 1000)}k`} />
+              <YAxis stroke={chartText} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => compactMoney(Number(v), lang, data.currency)} />
               <Tooltip formatter={(v) => money(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
               <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} dot={false} name={t.dashboard.income} />
               <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={false} name={t.dashboard.expenses} />
@@ -297,7 +329,7 @@ export default function DashboardPage() {
                   </span>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{goal.name}</p>
-                    <p className="text-xs text-muted-foreground">{money(goal.current_amount)} / {money(goal.target_amount)}</p>
+                    <p className="text-xs text-muted-foreground">{money(goal.converted_current_amount)} / {money(goal.converted_target_amount)}</p>
                   </div>
                 </div>
                 <ProgressRow label={goal.target_date ?? t.dashboard.noTargetDate} value={`${formatFixed(goal.progress_pct, 0)}%`} percent={goal.progress_pct} color={goal.color} compact />
@@ -310,7 +342,16 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({ title, value, change, icon, tone, lang, t }: { title: string; value: number | string; change: number | string | null; icon: React.ReactNode; tone: "green" | "red" | "blue" | "cyan"; lang: Language; t: Translations }) {
+function compactMoney(value: number, lang: Language, currency: string) {
+  return new Intl.NumberFormat(localeFor(lang), {
+    style: "currency",
+    currency,
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function KpiCard({ title, value, change, icon, tone, lang, t, currency }: { title: string; value: number | string; change: number | string | null; icon: React.ReactNode; tone: "green" | "red" | "blue" | "cyan"; lang: Language; t: Translations; currency: string }) {
   const tones = {
     green: "bg-emerald-500/15 text-emerald-300",
     red: "bg-red-500/15 text-red-300",
@@ -323,7 +364,7 @@ function KpiCard({ title, value, change, icon, tone, lang, t }: { title: string;
         <span className={`rounded-full p-3 ${tones[tone]}`}>{icon}</span>
         <div className="min-w-0">
           <p className="text-xs font-medium text-muted-foreground">{title}</p>
-          <p className="truncate text-2xl font-bold">{formatMoney(value, lang, t.dashboard.noQuote)}</p>
+          <p className="truncate text-2xl font-bold">{formatMoney(value, lang, t.dashboard.noQuote, currency)}</p>
           <p className={`text-xs ${(toNumber(change) ?? 0) < 0 ? "text-red-300" : "text-emerald-300"}`}>
             {formatPct(change, t.dashboard.noPreviousPeriod)} {t.dashboard.previousPeriod}
           </p>

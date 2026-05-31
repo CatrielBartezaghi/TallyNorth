@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     exchange_rate_cron_enabled: bool = True
     exchange_rate_cron_hours: str = "0,8,16"
     exchange_rate_sync_to: str = "ARS"
-    exchange_rate_sync_from: str = "USD,EUR,BTC"
+    exchange_rate_sync_from: str = "USD"
 
     class Config:
         env_file = ".env"

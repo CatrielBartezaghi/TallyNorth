@@ -266,6 +266,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
         current = _decimal(goal.current_amount)
         target = _decimal(goal.target_amount)
         converted_current = converter.convert(current, goal.currency)
+        converted_target = converter.convert(target, goal.currency)
         if converted_current is not None:
             goals_total += converted_current
         goal_rows.append(
@@ -274,6 +275,8 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
                 "name": goal.name,
                 "current_amount": current,
                 "target_amount": target,
+                "converted_current_amount": converted_current,
+                "converted_target_amount": converted_target,
                 "progress_pct": min(_ratio_pct(current, target), Decimal("100")),
                 "target_date": goal.target_date,
                 "color": goal.color,

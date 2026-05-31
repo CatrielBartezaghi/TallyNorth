@@ -1,7 +1,6 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import Cookies from "js-cookie";
 import { authApi } from "./api";
 
 interface User {
@@ -26,7 +25,7 @@ function isAuthRoute() {
 }
 
 function clearTokenCookie() {
-  Cookies.remove("token", { path: "/" });
+  document.cookie = "token=; Max-Age=0; path=/";
 }
 
 export function AuthProvider({
@@ -37,9 +36,9 @@ export function AuthProvider({
   initialTokenPresent?: boolean;
 }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => Cookies.get("token") ?? null);
+  const [token, setToken] = useState<string | null>(null);
   const [hasServerToken, setHasServerToken] = useState(initialTokenPresent);
-  const [isLoading, setIsLoading] = useState(() => Boolean(Cookies.get("token")) || initialTokenPresent);
+  const [isLoading, setIsLoading] = useState(initialTokenPresent);
 
   useEffect(() => {
     const hasToken = Boolean(token) || hasServerToken;

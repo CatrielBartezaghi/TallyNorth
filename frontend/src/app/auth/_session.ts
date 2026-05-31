@@ -4,7 +4,7 @@ const TOKEN_COOKIE = "token";
 const TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
 
 export function backendUrl(request: NextRequest, path: string) {
-  const configuredBase = process.env.NEXT_PUBLIC_API_URL;
+  const configuredBase = process.env.SERVER_API_URL || process.env.NEXT_PUBLIC_API_URL;
   const fallbackBase =
     process.env.NODE_ENV === "development" ? "http://localhost:8000" : request.nextUrl.origin;
   return new URL(path, configuredBase || fallbackBase);

@@ -21,6 +21,7 @@ router = APIRouter(prefix="/exchange-rates", tags=["Exchange Rates"])
 def list_exchange_rates(
     from_currency_id: Optional[str] = Query(default=None),
     to_currency_id: Optional[str] = Query(default=None),
+    latest_only: bool = Query(default=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -29,7 +30,16 @@ def list_exchange_rates(
         query = query.filter(ExchangeRate.from_currency_id == from_currency_id)
     if to_currency_id:
         query = query.filter(ExchangeRate.to_currency_id == to_currency_id)
-    return query.order_by(ExchangeRate.date.desc()).all()
+    rows = query.order_by(ExchangeRate.date.desc(), ExchangeRate.created_at.desc()).all()
+    if not latest_only:
+        return rows
+
+    latest_by_pair: dict[tuple[str, str], ExchangeRate] = {}
+    for row in rows:
+        key = (str(row.from_currency_id), str(row.to_currency_id))
+        if key not in latest_by_pair:
+            latest_by_pair[key] = row
+    return list(latest_by_pair.values())
 
 
 @router.get("/quote", response_model=ExchangeRateQuote)
@@ -85,7 +95,7 @@ def create_exchange_rate(
 @router.post("/sync", response_model=list[ExchangeRateRead])
 def sync_exchange_rates(
     to: str = Query(default="ARS", min_length=3, max_length=10),
-    from_codes: str = Query(default="USD,EUR,BTC"),
+    from_codes: str = Query(default="USD"),
     rate_date: date = Query(default_factory=date.today),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),

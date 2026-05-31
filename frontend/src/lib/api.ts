@@ -269,6 +269,8 @@ export interface FullDashboardSummary {
     name: string;
     current_amount: number;
     target_amount: number;
+    converted_current_amount: number | null;
+    converted_target_amount: number | null;
     progress_pct: number;
     target_date: string | null;
     color: string;
@@ -473,7 +475,10 @@ export const investmentsApi = {
 };
 
 export const exchangeRatesApi = {
-  list: () => apiFetch<ExchangeRate[]>("/exchange-rates/"),
+  list: (params?: { latest_only?: boolean }) => {
+    const qs = params?.latest_only === false ? "?latest_only=false" : "";
+    return apiFetch<ExchangeRate[]>(`/exchange-rates/${qs}`);
+  },
   get: (id: string) => apiFetch<ExchangeRate>(`/exchange-rates/${id}`),
   quote: (params: { from_currency_id: string; to_currency_id: string }) => {
     const qs = new URLSearchParams(params).toString();

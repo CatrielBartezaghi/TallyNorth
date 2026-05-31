@@ -22,7 +22,7 @@ def sync_market_rates(
 
     synced: list[ExchangeRate] = []
     errors: list[str] = []
-    codes = from_codes or ["USD", "EUR", "BTC"]
+    codes = from_codes or ["USD"]
     current_date = rate_date or date.today()
 
     for code in [item.strip().upper() for item in codes if item.strip()]:

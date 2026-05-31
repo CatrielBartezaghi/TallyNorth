@@ -80,6 +80,8 @@ class SavingGoalPoint(BaseModel):
     name: str
     current_amount: Decimal
     target_amount: Decimal
+    converted_current_amount: Decimal | None
+    converted_target_amount: Decimal | None
     progress_pct: Decimal
     target_date: date | None
     color: str

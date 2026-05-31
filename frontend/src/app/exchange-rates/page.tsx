@@ -97,7 +97,7 @@ export default function ExchangeRatesPage() {
   const syncMarketRates = async () => {
     try {
       setSyncing(true);
-      await exchangeRatesApi.sync({ to: "ARS", from_codes: "USD,EUR,BTC" });
+      await exchangeRatesApi.sync({ to: "ARS", from_codes: "USD" });
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.exchangeRates.syncError);
