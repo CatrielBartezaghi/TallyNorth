@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
+import { AuthRedirector } from "@/components/auth-redirector";
 import { Navbar } from "@/components/navbar";
 import { AuthProvider } from "@/lib/AuthContext";
 import { LanguageProvider } from "@/lib/LanguageContext";
@@ -33,6 +34,7 @@ export default async function RootLayout({
       <body className={`${geist.className} min-h-screen bg-background text-foreground antialiased`}>
         <AuthProvider initialTokenPresent={initialTokenPresent}>
           <LanguageProvider defaultLang={currentLang}>
+            <AuthRedirector />
             <Navbar />
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
               {children}

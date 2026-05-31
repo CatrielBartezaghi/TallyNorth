@@ -525,7 +525,7 @@ export const authApi = {
     });
   },
   logout: () =>
-    fetch(`${API_BASE}/api/auth/logout`, { method: "POST", credentials: "include" }).then(res => {
+    fetch("/auth/logout", { method: "POST", credentials: "include" }).then(res => {
       if (!res.ok) throw new Error("Logout failed");
     }),
 };

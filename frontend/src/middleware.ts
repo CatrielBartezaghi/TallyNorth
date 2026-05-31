@@ -3,10 +3,17 @@ import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
-  const isAuthPage = request.nextUrl.pathname.startsWith("/login") || request.nextUrl.pathname.startsWith("/register");
+  const pathname = request.nextUrl.pathname;
+  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
+
+  if (pathname.startsWith("/auth/")) {
+    return NextResponse.next();
+  }
   
   if (!token && !isAuthPage) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(loginUrl);
   }
   
   if (token && isAuthPage) {
@@ -20,11 +27,12 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
-     * - api (API routes)
+     * - api (backend routes)
+     * - auth (form action routes)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico, tallynorth-logo.svg (public files)
      */
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.svg|.*\\.png).*)",
+    "/((?!api|auth|_next/static|_next/image|favicon.ico|.*\\.svg|.*\\.png).*)",
   ],
 };
