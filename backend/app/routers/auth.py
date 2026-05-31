@@ -1,7 +1,8 @@
 from datetime import timedelta
+import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,7 @@ from app.services.auth import (
 from app.routers.deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+TOKEN_COOKIE_NAME = "token"
 
 @router.post("/register", response_model=UserRead)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
@@ -33,6 +35,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 def login_for_access_token(
+    response: Response,
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Session = Depends(get_db)
 ):
@@ -48,7 +51,27 @@ def login_for_access_token(
     access_token = create_access_token(
         data={"sub": str(user.id)}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    response.set_cookie(
+        key=TOKEN_COOKIE_NAME,
+        value=access_token,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT", "development").lower() == "production",
+        samesite="lax",
+        path="/",
+    )
+    return {"access_token": access_token, "token_type": "bearer", "user": user}
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response):
+    response.delete_cookie(
+        key=TOKEN_COOKIE_NAME,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT", "development").lower() == "production",
+        samesite="lax",
+        path="/",
+    )
+    return None
 
 @router.get("/me", response_model=UserRead)
 def read_users_me(current_user: Annotated[User, Depends(get_current_user)]):

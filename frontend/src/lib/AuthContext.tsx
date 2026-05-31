@@ -59,6 +59,7 @@ export function AuthProvider({
       })
       .catch(() => {
         clearTokenCookie();
+        void authApi.logout();
         setToken(null);
         setHasServerToken(false);
         if (!cancelled) {
@@ -78,7 +79,6 @@ export function AuthProvider({
   }, [token, hasServerToken]);
 
   const login = (newToken: string, newUser: User) => {
-    Cookies.set("token", newToken, { expires: 7, path: "/", sameSite: "lax", secure: window.location.protocol === "https:" });
     setToken(newToken);
     setHasServerToken(true);
     setUser(newUser);
@@ -90,7 +90,9 @@ export function AuthProvider({
     setToken(null);
     setHasServerToken(false);
     setUser(null);
-    window.location.href = "/login";
+    authApi.logout().finally(() => {
+      window.location.href = "/login";
+    });
   };
 
   return (

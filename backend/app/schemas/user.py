@@ -19,6 +19,7 @@ class UserRead(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: UserRead
 
 class TokenData(BaseModel):
     id: str | None = None

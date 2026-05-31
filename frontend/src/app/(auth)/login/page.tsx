@@ -30,10 +30,9 @@ export default function LoginPage() {
       const formData = new FormData();
       formData.append("username", "demo@finance.com");
       formData.append("password", "demo123");
-      const { access_token } = await authApi.login(formData);
-      const user = await authApi.me(access_token);
+      const { access_token, user } = await authApi.login(formData);
       login(access_token, user);
-      window.location.href = "/";
+      router.replace("/");
     } catch {
       setError(t.auth.demoError);
     } finally {
@@ -51,11 +50,10 @@ export default function LoginPage() {
       formData.append("username", email);
       formData.append("password", password);
 
-      const { access_token } = await authApi.login(formData);
-      const user = await authApi.me(access_token);
+      const { access_token, user } = await authApi.login(formData);
 
       login(access_token, user);
-      window.location.href = "/";
+      router.replace("/");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t.auth.loginError);
     } finally {

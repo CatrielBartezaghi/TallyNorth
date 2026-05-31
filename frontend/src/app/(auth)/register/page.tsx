@@ -34,11 +34,10 @@ export default function RegisterPage() {
       formData.append("username", email);
       formData.append("password", password);
 
-      const { access_token } = await authApi.login(formData);
-      const user = await authApi.me(access_token);
+      const { access_token, user } = await authApi.login(formData);
 
       login(access_token, user);
-      window.location.href = "/";
+      router.replace("/");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t.auth.registerError);
     } finally {
