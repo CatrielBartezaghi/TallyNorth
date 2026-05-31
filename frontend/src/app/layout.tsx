@@ -25,12 +25,13 @@ export default async function RootLayout({
 }) {
   const cookieStore = await cookies();
   const cookieLang = cookieStore.get("NEXT_LOCALE")?.value;
+  const initialTokenPresent = Boolean(cookieStore.get("token")?.value);
   const currentLang = isLanguage(cookieLang) ? cookieLang : DEFAULT_LANGUAGE;
 
   return (
     <html lang={currentLang} className="dark">
       <body className={`${geist.className} min-h-screen bg-background text-foreground antialiased`}>
-        <AuthProvider>
+        <AuthProvider initialTokenPresent={initialTokenPresent}>
           <LanguageProvider defaultLang={currentLang}>
             <Navbar />
             <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">

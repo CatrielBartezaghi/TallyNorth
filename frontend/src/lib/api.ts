@@ -16,12 +16,13 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   const res = await fetch(`${API_V1}${path}`, {
-    headers,
     ...options,
+    headers,
+    credentials: options?.credentials ?? "include",
   });
 
   if (res.status === 401 && typeof window !== "undefined" && !path.includes("/auth/")) {
-    Cookies.remove("token");
+    Cookies.remove("token", { path: "/" });
     window.location.href = "/login";
   }
 
@@ -506,18 +507,21 @@ export const dashboardApi = {
 
 export const authApi = {
   login: (data: FormData) =>
-    fetch(`${API_BASE}/api/auth/login`, { method: "POST", body: data }).then(res => {
+    fetch(`${API_BASE}/api/auth/login`, { method: "POST", body: data, credentials: "include" }).then(res => {
       if (!res.ok) throw new Error("Login failed");
       return res.json();
     }),
   register: (data: { email: string; password: string }) =>
-    fetch(`${API_BASE}/api/auth/register`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data) }).then(res => {
+    fetch(`${API_BASE}/api/auth/register`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data), credentials: "include" }).then(res => {
       if (!res.ok) throw new Error("Register failed");
       return res.json();
     }),
-  me: (token: string) =>
-    fetch(`${API_BASE}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } }).then(res => {
+  me: (token?: string | null) => {
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(`${API_BASE}/api/auth/me`, { headers, credentials: "include" }).then(res => {
       if (!res.ok) throw new Error("Auth failed");
       return res.json();
-    }),
+    });
+  },
 };

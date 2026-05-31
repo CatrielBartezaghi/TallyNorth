@@ -20,37 +20,75 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+function isAuthRoute() {
+  if (typeof window === "undefined") return false;
+  return window.location.pathname.startsWith("/login") || window.location.pathname.startsWith("/register");
+}
+
+function clearTokenCookie() {
+  Cookies.remove("token", { path: "/" });
+}
+
+export function AuthProvider({
+  children,
+  initialTokenPresent = false,
+}: {
+  children: React.ReactNode;
+  initialTokenPresent?: boolean;
+}) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(() => Cookies.get("token") ?? null);
-  const [isLoading, setIsLoading] = useState(() => Boolean(Cookies.get("token")));
+  const [hasServerToken, setHasServerToken] = useState(initialTokenPresent);
+  const [isLoading, setIsLoading] = useState(() => Boolean(Cookies.get("token")) || initialTokenPresent);
 
   useEffect(() => {
-    if (!token) return;
+    const hasToken = Boolean(token) || hasServerToken;
+
+    if (!hasToken) {
+      if (!isAuthRoute() && typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+      return;
+    }
+
+    let cancelled = false;
 
     authApi.me(token)
       .then((data) => {
-        setUser(data);
+        if (!cancelled) setUser(data);
       })
       .catch(() => {
-        Cookies.remove("token");
+        clearTokenCookie();
         setToken(null);
-        setUser(null);
+        setHasServerToken(false);
+        if (!cancelled) {
+          setUser(null);
+          if (!isAuthRoute()) {
+            window.location.href = "/login";
+          }
+        }
       })
       .finally(() => {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       });
-  }, [token]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, hasServerToken]);
 
   const login = (newToken: string, newUser: User) => {
-    Cookies.set("token", newToken, { expires: 7 }); // 7 days
+    Cookies.set("token", newToken, { expires: 7, path: "/", sameSite: "lax", secure: window.location.protocol === "https:" });
     setToken(newToken);
+    setHasServerToken(true);
     setUser(newUser);
+    setIsLoading(false);
   };
 
   const logout = () => {
-    Cookies.remove("token");
+    clearTokenCookie();
     setToken(null);
+    setHasServerToken(false);
     setUser(null);
     window.location.href = "/login";
   };

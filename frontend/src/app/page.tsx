@@ -24,6 +24,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { dashboardApi, type FullDashboardSummary } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -90,9 +91,12 @@ export default function DashboardPage() {
   const [data, setData] = useState<FullDashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { user, isLoading: authLoading } = useAuth();
   const { lang, t } = useLanguage();
 
   useEffect(() => {
+    if (authLoading || !user) return;
+
     let mounted = true;
     const load = async () => {
       try {
@@ -112,7 +116,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, [range, t.dashboard.loadError]);
+  }, [authLoading, range, t.dashboard.loadError, user]);
 
   const monthly = useMemo(
     () => data?.monthly_flow.map((item) => ({
@@ -125,7 +129,7 @@ export default function DashboardPage() {
     [data, lang],
   );
 
-  if (loading) {
+  if (authLoading || !user || loading) {
     return <p className="text-sm text-muted-foreground">{t.dashboard.loading}</p>;
   }
 
