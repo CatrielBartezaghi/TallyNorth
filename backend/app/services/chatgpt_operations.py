@@ -1,14 +1,32 @@
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from app.models.account import Account
+from app.models.budget import Budget
 from app.models.category import Category
 from app.models.credit_card import CreditCard
+from app.models.currency import Currency
 from app.models.installment import Installment
+from app.models.investment import Investment
 from app.models.purchase import CreditCardPurchase
+from app.models.saving_goal import SavingGoal
 from app.models.transaction import Transaction
-from app.schemas.integration import ChatGPTPurchaseCreate, ChatGPTTransactionCreate
+from app.schemas.integration import (
+    ChatGPTBatchPurchaseCreate,
+    ChatGPTBatchTransactionCreate,
+    ChatGPTBudgetSet,
+    ChatGPTFinanceBatchCreate,
+    ChatGPTFinanceBatchItemResult,
+    ChatGPTInstallmentPaymentCreate,
+    ChatGPTInvestmentCreate,
+    ChatGPTInvestmentValueUpdate,
+    ChatGPTPurchaseCreate,
+    ChatGPTSavingGoalCreate,
+    ChatGPTSavingGoalProgressUpdate,
+    ChatGPTTransactionCreate,
+)
 from app.services.installment_service import (
     compute_first_installment_date,
     compute_installment_amount,
@@ -22,6 +40,21 @@ class OwnedResourceNotFoundError(ValueError):
 
 class InvalidCategoryError(ValueError):
     pass
+
+
+class ActionConflictError(ValueError):
+    pass
+
+
+class BatchItemError(ValueError):
+    def __init__(self, index: int, message: str):
+        super().__init__(message)
+        self.index = index
+        self.message = message
+
+
+def _decimal(value) -> Decimal:
+    return Decimal(str(value or 0))
 
 
 def _get_owned_category(
@@ -51,6 +84,13 @@ def _get_owned_category(
             f"Category '{category.name}' cannot be used for {operation_type} operations"
         )
     return category
+
+
+def _get_currency(db: Session, currency_id) -> Currency:
+    currency = db.query(Currency).filter(Currency.id == currency_id).first()
+    if currency is None:
+        raise OwnedResourceNotFoundError("Currency not found")
+    return currency
 
 
 def create_chatgpt_transaction(
@@ -165,3 +205,252 @@ def create_chatgpt_purchase(
 
     db.flush()
     return purchase
+
+
+def create_chatgpt_finance_batch(
+    db: Session,
+    user_id,
+    payload: ChatGPTFinanceBatchCreate,
+) -> list[ChatGPTFinanceBatchItemResult]:
+    results: list[ChatGPTFinanceBatchItemResult] = []
+    for index, entry in enumerate(payload.entries):
+        try:
+            if isinstance(entry, ChatGPTBatchTransactionCreate):
+                transaction = create_chatgpt_transaction(
+                    db,
+                    user_id,
+                    ChatGPTTransactionCreate(
+                        idempotency_key=payload.idempotency_key,
+                        **entry.model_dump(exclude={"kind"}),
+                    ),
+                )
+                results.append(
+                    ChatGPTFinanceBatchItemResult(
+                        index=index,
+                        kind="transaction",
+                        resource_id=transaction.id,
+                    )
+                )
+            elif isinstance(entry, ChatGPTBatchPurchaseCreate):
+                purchase = create_chatgpt_purchase(
+                    db,
+                    user_id,
+                    ChatGPTPurchaseCreate(
+                        idempotency_key=payload.idempotency_key,
+                        **entry.model_dump(exclude={"kind"}),
+                    ),
+                )
+                results.append(
+                    ChatGPTFinanceBatchItemResult(
+                        index=index,
+                        kind="credit_card_purchase",
+                        resource_id=purchase.id,
+                    )
+                )
+        except (OwnedResourceNotFoundError, InvalidCategoryError) as exc:
+            raise BatchItemError(index, str(exc)) from exc
+    return results
+
+
+def set_chatgpt_budget(
+    db: Session,
+    user_id,
+    payload: ChatGPTBudgetSet,
+) -> tuple[Budget, str]:
+    category = _get_owned_category(
+        db,
+        user_id,
+        payload.category_id,
+        "expense",
+    )
+    _get_currency(db, payload.currency_id)
+    year, month = (int(part) for part in payload.period_month.split("-"))
+    period_start = date(year, month, 1)
+
+    budget = (
+        db.query(Budget)
+        .filter(
+            Budget.user_id == user_id,
+            Budget.category_id == category.id,
+            Budget.currency_id == payload.currency_id,
+            Budget.period_start == period_start,
+        )
+        .with_for_update()
+        .first()
+    )
+    if budget is None:
+        if payload.expected_current_amount is not None:
+            raise ActionConflictError(
+                "Budget does not exist, so expected_current_amount must be omitted"
+            )
+        budget = Budget(
+            user_id=user_id,
+            category_id=payload.category_id,
+            currency_id=payload.currency_id,
+            period_start=period_start,
+            amount=payload.amount,
+            notes=payload.notes,
+        )
+        db.add(budget)
+        db.flush()
+        return budget, "created"
+
+    if payload.expected_current_amount is None:
+        raise ActionConflictError(
+            "Budget already exists; expected_current_amount is required to update it"
+        )
+    if _decimal(budget.amount) != payload.expected_current_amount:
+        raise ActionConflictError(
+            f"Budget amount changed; current amount is {_decimal(budget.amount)}"
+        )
+
+    budget.amount = payload.amount
+    budget.notes = payload.notes
+    db.flush()
+    return budget, "updated"
+
+
+def create_chatgpt_saving_goal(
+    db: Session,
+    user_id,
+    payload: ChatGPTSavingGoalCreate,
+) -> SavingGoal:
+    _get_currency(db, payload.currency_id)
+    goal = SavingGoal(
+        user_id=user_id,
+        name=payload.name,
+        currency_id=payload.currency_id,
+        target_amount=payload.target_amount,
+        current_amount=payload.current_amount,
+        target_date=payload.target_date,
+    )
+    db.add(goal)
+    db.flush()
+    return goal
+
+
+def update_chatgpt_saving_goal_progress(
+    db: Session,
+    user_id,
+    payload: ChatGPTSavingGoalProgressUpdate,
+) -> SavingGoal:
+    goal = (
+        db.query(SavingGoal)
+        .filter(
+            SavingGoal.id == payload.goal_id,
+            SavingGoal.user_id == user_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if goal is None:
+        raise OwnedResourceNotFoundError(
+            "Saving goal not found for the authenticated user"
+        )
+    if _decimal(goal.current_amount) != payload.expected_current_amount:
+        raise ActionConflictError(
+            f"Saving goal changed; current amount is {_decimal(goal.current_amount)}"
+        )
+    goal.current_amount = payload.new_current_amount
+    db.flush()
+    return goal
+
+
+def create_chatgpt_investment(
+    db: Session,
+    user_id,
+    payload: ChatGPTInvestmentCreate,
+) -> Investment:
+    _get_currency(db, payload.currency_id)
+    investment = Investment(
+        user_id=user_id,
+        name=payload.name,
+        type=payload.type,
+        currency_id=payload.currency_id,
+        invested_amount=payload.invested_amount,
+        current_value=payload.current_value,
+        expected_return_rate=payload.expected_return_rate,
+        notes=payload.notes,
+    )
+    db.add(investment)
+    db.flush()
+    return investment
+
+
+def update_chatgpt_investment_value(
+    db: Session,
+    user_id,
+    payload: ChatGPTInvestmentValueUpdate,
+) -> Investment:
+    investment = (
+        db.query(Investment)
+        .filter(
+            Investment.id == payload.investment_id,
+            Investment.user_id == user_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if investment is None:
+        raise OwnedResourceNotFoundError(
+            "Investment not found for the authenticated user"
+        )
+    if _decimal(investment.current_value) != payload.expected_current_value:
+        raise ActionConflictError(
+            f"Investment changed; current value is {_decimal(investment.current_value)}"
+        )
+    investment.current_value = payload.new_current_value
+    db.flush()
+    return investment
+
+
+def mark_chatgpt_installment_paid(
+    db: Session,
+    user_id,
+    payload: ChatGPTInstallmentPaymentCreate,
+) -> tuple[Installment, str]:
+    installment = (
+        db.query(Installment)
+        .filter(
+            Installment.id == payload.installment_id,
+            Installment.user_id == user_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if installment is None:
+        raise OwnedResourceNotFoundError(
+            "Installment not found for the authenticated user"
+        )
+
+    account = (
+        db.query(Account)
+        .filter(
+            Account.id == payload.paid_account_id,
+            Account.user_id == user_id,
+        )
+        .first()
+    )
+    if account is None:
+        raise OwnedResourceNotFoundError(
+            "Payment account not found for the authenticated user"
+        )
+
+    card = installment.purchase.credit_card
+    if account.currency_id != card.currency_id:
+        raise ActionConflictError(
+            "Payment account and credit card must use the same currency"
+        )
+
+    if installment.is_paid:
+        if installment.paid_account_id == account.id:
+            return installment, "already_processed"
+        raise ActionConflictError(
+            "Installment is already paid from a different account"
+        )
+
+    installment.is_paid = True
+    installment.paid_account_id = account.id
+    installment.paid_at = datetime.now(timezone.utc)
+    db.flush()
+    return installment, "paid"

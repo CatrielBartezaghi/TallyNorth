@@ -47,6 +47,7 @@ def record_action_request(
     idempotency_key: str,
     request_hash: str,
     resource_id,
+    response_payload: dict | None = None,
 ) -> GptActionRequest:
     action_request = GptActionRequest(
         user_id=user_id,
@@ -55,6 +56,7 @@ def record_action_request(
         idempotency_key=idempotency_key,
         request_hash=request_hash,
         resource_id=resource_id,
+        response_payload=response_payload,
     )
     db.add(action_request)
     db.flush()

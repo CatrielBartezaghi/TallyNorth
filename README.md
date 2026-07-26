@@ -230,7 +230,7 @@ Financial endpoints require an authenticated user. In local development, the mai
 | Exchange rates | CRUD, quote lookup, and market sync under `/api/v1/exchange-rates` |
 | Dashboard | Consolidated summary under `/api/v1/dashboard/summary` |
 | Integration tokens | Issue, list, and revoke scoped tokens under `/api/v1/integration-tokens` |
-| ChatGPT Actions | Curated context and create-only endpoints under `/api/v1/integrations/chatgpt` |
+| ChatGPT Actions | Curated read and confirmed-write endpoints under `/api/v1/integrations/chatgpt` |
 
 Full interactive docs at **http://localhost:8000/docs**.
 
@@ -239,9 +239,11 @@ Full interactive docs at **http://localhost:8000/docs**.
 ## ChatGPT GPT Actions
 
 TallyNorth can be connected to a private Custom GPT using a dedicated, revocable
-Bearer token and a curated OpenAPI schema. The integration exposes context
-lookup, transaction creation, and credit-card purchase creation without exposing
-update or delete operations.
+Bearer token and a curated OpenAPI schema. The integration exposes context and
+summary queries, cashflow projections, movement searches, installments,
+transaction and purchase creation, atomic batch entry, budgets, saving goals,
+investments, and installment payments. Destructive operations and configuration
+administration remain outside the GPT surface.
 
 See [backend/CHATGPT_ACTIONS.md](backend/CHATGPT_ACTIONS.md) for deployment,
 token issuance, the exact GPT configuration, and copy-ready GPT instructions.

@@ -6,7 +6,8 @@
     },
     "backend": {
       "entrypoint": "backend",
-      "routePrefix": "/api"
+      "routePrefix": "/api",
+      "buildCommand": "python scripts/vercel_build.py"
     }
   }
 }

@@ -1,3 +1,4 @@
+import json
 import unittest
 import uuid
 from datetime import date
@@ -5,7 +6,11 @@ from decimal import Decimal
 
 from pydantic import ValidationError
 
-from app.schemas.integration import ChatGPTTransactionCreate
+from app.schemas.integration import (
+    DEFAULT_INTEGRATION_SCOPES,
+    ChatGPTFinanceBatchCreate,
+    ChatGPTTransactionCreate,
+)
 from app.services.chatgpt_openapi import build_chatgpt_action_openapi
 from app.services.gpt_action_idempotency import action_request_hash
 from app.services.integration_tokens import (
@@ -35,29 +40,75 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
             schema["servers"][0]["url"],
             "https://finance.example.com/api/v1",
         )
+        expected_paths = {
+            "/integrations/chatgpt/context",
+            "/integrations/chatgpt/summary",
+            "/integrations/chatgpt/cashflow",
+            "/integrations/chatgpt/entries",
+            "/integrations/chatgpt/installments",
+            "/integrations/chatgpt/transactions",
+            "/integrations/chatgpt/purchases",
+            "/integrations/chatgpt/entries/batch",
+            "/integrations/chatgpt/budgets",
+            "/integrations/chatgpt/saving-goals",
+            "/integrations/chatgpt/saving-goal-progress",
+            "/integrations/chatgpt/investments",
+            "/integrations/chatgpt/investment-valuations",
+            "/integrations/chatgpt/installment-payments",
+        }
+        self.assertEqual(set(schema["paths"]), expected_paths)
+
+        operation_ids = set()
+        for path_item in schema["paths"].values():
+            method, operation = next(iter(path_item.items()))
+            operation_ids.add(operation["operationId"])
+            self.assertEqual(
+                operation["x-openai-isConsequential"],
+                method != "get",
+            )
+        self.assertEqual(len(operation_ids), 14)
+
+    def test_openapi_respects_gpt_action_limits(self):
+        schema = build_chatgpt_action_openapi(
+            "https://finance.example.com/api/v1"
+        )
+
+        self.assertLess(len(json.dumps(schema)), 100_000)
+        for path_item in schema["paths"].values():
+            _, operation = next(iter(path_item.items()))
+            self.assertLessEqual(len(operation.get("summary", "")), 300)
+            self.assertLessEqual(len(operation.get("description", "")), 300)
+            for parameter in operation.get("parameters", []):
+                self.assertLessEqual(len(parameter.get("description", "")), 700)
+
+    def test_default_token_scopes_cover_expanded_actions(self):
         self.assertEqual(
-            set(schema["paths"]),
+            set(DEFAULT_INTEGRATION_SCOPES),
             {
-                "/integrations/chatgpt/context",
-                "/integrations/chatgpt/transactions",
-                "/integrations/chatgpt/purchases",
+                "context:read",
+                "transactions:create",
+                "purchases:create",
+                "budgets:write",
+                "saving_goals:write",
+                "investments:write",
+                "installments:pay",
             },
         )
-        self.assertFalse(
-            schema["paths"]["/integrations/chatgpt/context"]["get"][
-                "x-openai-isConsequential"
-            ]
-        )
-        self.assertTrue(
-            schema["paths"]["/integrations/chatgpt/transactions"]["post"][
-                "x-openai-isConsequential"
-            ]
-        )
-        self.assertTrue(
-            schema["paths"]["/integrations/chatgpt/purchases"]["post"][
-                "x-openai-isConsequential"
-            ]
-        )
+
+    def test_batch_is_limited_to_fifty_entries(self):
+        entry = {
+            "kind": "transaction",
+            "account_id": str(uuid.uuid4()),
+            "type": "expense",
+            "amount": 1,
+            "description": "Test",
+            "date": "2026-07-26",
+        }
+        with self.assertRaises(ValidationError):
+            ChatGPTFinanceBatchCreate(
+                idempotency_key="batch-limit-test",
+                entries=[entry] * 51,
+            )
 
     def test_idempotency_hash_excludes_the_key(self):
         common = {
