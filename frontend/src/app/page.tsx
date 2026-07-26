@@ -223,16 +223,14 @@ export default function DashboardPage() {
             <EmptyState text={t.dashboard.noExpensesInPeriod} />
           ) : (
             <div className="grid grid-cols-[140px_1fr] items-center gap-3">
-              <ResponsiveContainer width="100%" height={170}>
-                <PieChart>
-                  <Pie data={data.expenses_by_category} dataKey="amount" nameKey="category" innerRadius={44} outerRadius={68} paddingAngle={2}>
-                    {data.expenses_by_category.map((entry) => (
-                      <Cell key={entry.category} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => money(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
-                </PieChart>
-              </ResponsiveContainer>
+              <PieChart width={140} height={170}>
+                <Pie data={data.expenses_by_category} dataKey="amount" nameKey="category" innerRadius={44} outerRadius={68} paddingAngle={2}>
+                  {data.expenses_by_category.map((entry) => (
+                    <Cell key={entry.category} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(v) => money(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
+              </PieChart>
               <div className="space-y-2">
                 {data.expenses_by_category.slice(0, 6).map((item) => (
                   <div key={item.category} className="grid grid-cols-[1fr_auto] gap-2 text-xs">
