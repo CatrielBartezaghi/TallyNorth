@@ -15,3 +15,4 @@ from app.models.saving_goal import SavingGoal  # noqa: F401
 from app.models.investment import Investment  # noqa: F401
 from app.models.exchange_rate import ExchangeRate  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.integration_token import GptActionRequest, IntegrationToken  # noqa: F401

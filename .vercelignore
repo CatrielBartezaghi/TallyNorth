@@ -1,0 +1,17 @@
+.git
+.vercel
+.vscode
+
+.env
+.env.*
+**/.env
+**/.env.*
+
+**/node_modules
+**/.next
+**/__pycache__
+**/.pytest_cache
+*.log
+
+backend/tests
+EXPERIENCIA_PROFESIONAL_TALLYNORTH.md

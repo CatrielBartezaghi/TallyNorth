@@ -155,6 +155,8 @@ SERVER_API_URL=http://localhost:8000
 | `JWT_SECRET_KEY` | Insecure development fallback | Signs access tokens; required for production |
 | `FRONTEND_URL` | Empty | Adds the deployed frontend origin to CORS |
 | `ALLOW_ALL_ORIGINS` | `False` | Allows every CORS origin only when explicitly enabled |
+| `APP_TIMEZONE` | `America/Buenos_Aires` | Resolves relative dates exposed to GPT Actions |
+| `CHATGPT_ACTION_BASE_URL` | Empty | Public HTTPS API base such as `https://example.com/api/v1` |
 | `EXCHANGE_RATE_CRON_ENABLED` | `True` | Enables scheduled rate synchronization |
 | `EXCHANGE_RATE_CRON_HOURS` | `0,8,16` | Local server hours used by the scheduler |
 | `EXCHANGE_RATE_SYNC_TO` | `ARS` | Target currency for scheduled synchronization |
@@ -227,8 +229,22 @@ Financial endpoints require an authenticated user. In local development, the mai
 | Currencies | CRUD under `/api/v1/currencies` |
 | Exchange rates | CRUD, quote lookup, and market sync under `/api/v1/exchange-rates` |
 | Dashboard | Consolidated summary under `/api/v1/dashboard/summary` |
+| Integration tokens | Issue, list, and revoke scoped tokens under `/api/v1/integration-tokens` |
+| ChatGPT Actions | Curated context and create-only endpoints under `/api/v1/integrations/chatgpt` |
 
 Full interactive docs at **http://localhost:8000/docs**.
+
+---
+
+## ChatGPT GPT Actions
+
+TallyNorth can be connected to a private Custom GPT using a dedicated, revocable
+Bearer token and a curated OpenAPI schema. The integration exposes context
+lookup, transaction creation, and credit-card purchase creation without exposing
+update or delete operations.
+
+See [backend/CHATGPT_ACTIONS.md](backend/CHATGPT_ACTIONS.md) for deployment,
+token issuance, the exact GPT configuration, and copy-ready GPT instructions.
 
 ---
 

@@ -7,14 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     accounts,
+    assistant,
     budgets,
     cashflow,
     categories,
+    chatgpt_actions,
     credit_cards,
     currencies,
     dashboard,
     exchange_rates,
     installments,
+    integration_tokens,
     investments,
     purchases,
     saving_goals,
@@ -76,6 +79,9 @@ route_base = "" if settings.environment == "production" else "/api"
 API_PREFIX = f"{route_base}/v1"
 
 app.include_router(accounts.router, prefix=API_PREFIX)
+app.include_router(assistant.router, prefix=API_PREFIX)
+app.include_router(chatgpt_actions.router, prefix=API_PREFIX)
+app.include_router(integration_tokens.router, prefix=API_PREFIX)
 app.include_router(categories.router, prefix=API_PREFIX)
 app.include_router(credit_cards.router, prefix=API_PREFIX)
 app.include_router(transactions.router, prefix=API_PREFIX)
