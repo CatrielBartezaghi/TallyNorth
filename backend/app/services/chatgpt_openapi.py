@@ -31,6 +31,27 @@ def _required_schemas(source_schema: dict, paths: dict) -> dict:
     return selected
 
 
+def _remove_query_nullability(operation: dict) -> None:
+    """Optional query values are represented by omission, never JSON null."""
+    for parameter in operation.get("parameters", []):
+        if parameter.get("in") != "query" or parameter.get("required", False):
+            continue
+        schema = parameter.get("schema")
+        if not isinstance(schema, dict) or "anyOf" not in schema:
+            continue
+        non_null = [
+            candidate
+            for candidate in schema["anyOf"]
+            if candidate.get("type") != "null"
+        ]
+        if len(non_null) != 1:
+            continue
+        parameter["schema"] = {
+            **non_null[0],
+            **{key: value for key, value in schema.items() if key != "anyOf"},
+        }
+
+
 def build_chatgpt_action_openapi(
     server_url: str,
     source_schema: dict | None = None,
@@ -54,6 +75,7 @@ def build_chatgpt_action_openapi(
             if method.lower() not in {"get", "post", "put", "patch", "delete"}:
                 continue
             operation["security"] = [{"bearerAuth": []}]
+            _remove_query_nullability(operation)
 
     return {
         "openapi": "3.1.0",
@@ -63,7 +85,7 @@ def build_chatgpt_action_openapi(
                 "Consulta información financiera y ejecuta cargas confirmadas "
                 "para el usuario autenticado."
             ),
-            "version": "1.1.0",
+            "version": "1.1.1",
         },
         "servers": [{"url": server_url.rstrip("/")}],
         "security": [{"bearerAuth": []}],

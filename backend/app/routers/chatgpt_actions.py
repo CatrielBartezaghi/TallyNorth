@@ -137,6 +137,25 @@ def _today() -> date:
     return datetime.now(ZoneInfo(settings.app_timezone)).date()
 
 
+def _optional_query_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if normalized.lower() in {"", "null", "none", "undefined"}:
+        return None
+    return normalized
+
+
+def _optional_query_date(value: str | None, field_name: str) -> date | None:
+    normalized = _optional_query_value(value)
+    if normalized is None:
+        return None
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError as exc:
+        raise _unprocessable(f"{field_name} must use YYYY-MM-DD format") from exc
+
+
 def _conflict(message: str, code: str = "data_conflict") -> HTTPException:
     return HTTPException(status_code=409, detail={"code": code, "message": message})
 
@@ -218,18 +237,31 @@ def get_finance_context(
     openapi_extra=READ_ACTION,
 )
 def get_financial_summary(
-    date_from: date | None = Query(default=None),
-    date_to: date | None = Query(default=None),
-    currency: str | None = Query(default=None, min_length=3, max_length=10),
+    date_from: str | None = Query(
+        default=None,
+        description="Start date in YYYY-MM-DD format. Omit when not needed.",
+    ),
+    date_to: str | None = Query(
+        default=None,
+        description="End date in YYYY-MM-DD format. Omit when not needed.",
+    ),
+    currency: str | None = Query(
+        default=None,
+        description="Target currency code, for example ARS or USD. Omit only when it can be inferred.",
+    ),
     db: Session = Depends(get_db),
     principal: IntegrationPrincipal = Depends(require_integration_scope("context:read")),
 ):
     today = _today()
-    resolved_from = date_from or date(today.year, today.month, 1)
-    resolved_to = date_to or today
+    resolved_from = _optional_query_date(date_from, "date_from") or date(today.year, today.month, 1)
+    resolved_to = _optional_query_date(date_to, "date_to") or today
     if resolved_to < resolved_from:
         raise _unprocessable("date_to cannot be before date_from")
-    target_currency = _currency_code_or_http_error(db, principal.user.id, currency)
+    target_currency = _currency_code_or_http_error(
+        db,
+        principal.user.id,
+        _optional_query_value(currency),
+    )
     try:
         return build_dashboard_summary(db, date_from=resolved_from, date_to=resolved_to, currency_code=target_currency, user_id=principal.user.id)
     except ValueError as exc:

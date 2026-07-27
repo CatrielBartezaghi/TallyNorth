@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from pydantic import ValidationError
 
+from app.routers.chatgpt_actions import _optional_query_date, _optional_query_value
 from app.schemas.integration import (
     DEFAULT_INTEGRATION_SCOPES,
     ChatGPTFinanceBatchCreate,
@@ -67,6 +68,28 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
                 method != "get",
             )
         self.assertEqual(len(operation_ids), 14)
+
+    def test_optional_query_parameters_do_not_advertise_literal_null(self):
+        schema = build_chatgpt_action_openapi(
+            "https://finance.example.com/api/v1"
+        )
+        parameters = schema["paths"]["/integrations/chatgpt/summary"]["get"]["parameters"]
+
+        for parameter in parameters:
+            self.assertNotIn(
+                {"type": "null"},
+                parameter["schema"].get("anyOf", []),
+            )
+
+    def test_summary_query_values_accept_action_null_placeholders(self):
+        for nullish in (None, "", " ", "null", "None", "undefined"):
+            self.assertIsNone(_optional_query_value(nullish))
+            self.assertIsNone(_optional_query_date(nullish, "date_from"))
+
+        self.assertEqual(
+            _optional_query_date("2026-07-27", "date_from"),
+            date(2026, 7, 27),
+        )
 
     def test_openapi_respects_gpt_action_limits(self):
         schema = build_chatgpt_action_openapi(
