@@ -168,9 +168,21 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     net = _q(income - expenses)
     previous_net = _q(previous_income - previous_expenses)
 
+    today = date.today()
+    today_month_start = _month_start(today)
+
+    def _add_months(d: date, m: int) -> date:
+        month = d.month - 1 + m
+        year = d.year + month // 12
+        month = month % 12 + 1
+        return date(year, month, 1)
+
+    flow_start = max(_month_start(date_from), _add_months(today_month_start, -3))
+    flow_end = min(_month_start(date_to), _add_months(today_month_start, 3))
+
     monthly_map: dict[str, dict[str, Decimal]] = {
         f"{year:04d}-{month:02d}": {"income": Decimal("0"), "expenses": Decimal("0")}
-        for year, month in _months_between(_month_start(date_from), _month_start(date_to))
+        for year, month in _months_between(flow_start, flow_end)
     }
     for tx in transactions:
         if date_from <= tx.date <= date_to:
@@ -178,13 +190,15 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             if converted is None:
                 continue
             key = f"{tx.date.year:04d}-{tx.date.month:02d}"
-            monthly_map[key]["income" if tx.type == "income" else "expenses"] += converted
+            if key in monthly_map:
+                monthly_map[key]["income" if tx.type == "income" else "expenses"] += converted
     for installment in installments:
         if date_from <= installment.due_date <= date_to:
             converted = converter.convert(installment.amount, installment.purchase.credit_card.currency)
             if converted is not None:
                 key = f"{installment.due_date.year:04d}-{installment.due_date.month:02d}"
-                monthly_map[key]["expenses"] += converted
+                if key in monthly_map:
+                    monthly_map[key]["expenses"] += converted
 
     today_month_start = _month_start(date.today())
     recurring_txs = (
