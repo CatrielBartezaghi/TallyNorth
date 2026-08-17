@@ -29,6 +29,8 @@ class TransactionCreate(TransactionBase):
 
 
 class TransactionUpdate(BaseModel):
+    account_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
     type: TransactionType | None = None
     amount: Decimal | None = Field(default=None, gt=0)
     description: str | None = None
