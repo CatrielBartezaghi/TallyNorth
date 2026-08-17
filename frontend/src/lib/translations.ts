@@ -276,8 +276,8 @@ export const translations = {
       paymentAccountRequired: "Vincula una cuenta de pago a esta tarjeta en \"Administrar tarjetas\" antes de pagar.",
       noLimit: "Sin límite",
       saveError: "No se pudo guardar el consumo",
-      deleteError: "No se pudo eliminar el consumo",
       importError: "No se pudo importar el archivo",
+      hideCompleted: "Ocultar finalizadas",
     },
     manageCreditCards: {
       title: "Administrar tarjetas",
@@ -593,8 +593,8 @@ export const translations = {
       paymentAccountRequired: "Please link a payment account to this credit card in \"Manage Cards\" before paying.",
       noLimit: "No limit",
       saveError: "Save failed",
-      deleteError: "Delete failed",
       importError: "Import failed",
+      hideCompleted: "Hide completed",
     },
     manageCreditCards: {
       title: "Manage Credit Cards",

@@ -83,6 +83,7 @@ export default function CreditCardsPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [cards, setCards] = useState<CreditCard[]>([]);
   const [selectedCardId, setSelectedCardId] = useState<string>("all");
+  const [hideCompleted, setHideCompleted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
@@ -107,9 +108,20 @@ export default function CreditCardsPage() {
   );
 
   const filteredPurchases = useMemo(() => {
-    if (selectedCardId === "all") return purchases;
-    return purchases.filter((purchase) => purchase.credit_card_id === selectedCardId);
-  }, [purchases, selectedCardId]);
+    let result = purchases;
+    if (selectedCardId !== "all") {
+      result = result.filter((purchase) => purchase.credit_card_id === selectedCardId);
+    }
+    if (hideCompleted) {
+      result = result.filter((purchase) => {
+        const explicitlyPaid = purchase.installment_rows.filter((installment) => installment.is_paid).length;
+        const implicitlyPaid = purchase.installments - purchase.installment_rows.length;
+        const totalPaid = explicitlyPaid + implicitlyPaid;
+        return totalPaid < purchase.installments;
+      });
+    }
+    return result;
+  }, [purchases, selectedCardId, hideCompleted]);
 
   const load = async (showLoading = true) => {
     try {
@@ -294,6 +306,16 @@ export default function CreditCardsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <label className="mr-4 flex cursor-pointer items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-gray-300 bg-transparent"
+              checked={hideCompleted}
+              onChange={(e) => setHideCompleted(e.target.checked)}
+            />
+            {t.creditCards.hideCompleted}
+          </label>
+
           <Select value={selectedCardId} onValueChange={(v: string | null) => setSelectedCardId(v ?? "all")}>
             <SelectTrigger className="w-[200px]">
               <SelectValue>
