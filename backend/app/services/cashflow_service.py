@@ -13,10 +13,9 @@ Recurring transactions are expanded on-the-fly for projection purposes
 
 import calendar
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
-from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
 
 from app.models.installment import Installment
@@ -39,23 +38,6 @@ def _months_range(start: date, num_months: int) -> list[tuple[int, int]]:
 
 def _last_day(year: int, month: int) -> int:
     return calendar.monthrange(year, month)[1]
-
-
-def _get_occurrences(t: Transaction, end_date: date):
-    occurrence = t.date
-    final_date = min(end_date, t.end_date or end_date)
-    while occurrence <= final_date:
-        yield occurrence
-        if not t.is_recurring:
-            break
-        if t.recurrence_rule == "monthly":
-            occurrence += relativedelta(months=1)
-        elif t.recurrence_rule == "weekly":
-            occurrence += timedelta(weeks=1)
-        elif t.recurrence_rule == "yearly":
-            occurrence += relativedelta(years=1)
-        else:
-            break
 
 
 def get_monthly_projection(
@@ -91,11 +73,22 @@ def get_monthly_projection(
         installments_q = installments_q.filter(Installment.user_id == user_id)
     installments = installments_q.all()
 
-    # Load all transactions for the user to dynamically calculate occurrences
-    transactions_q = db.query(Transaction)
+    # Load all transactions in the window
+    transactions_q = db.query(Transaction).filter(
+        Transaction.date >= first_month_start,
+        Transaction.date <= last_month_end,
+    )
     if user_id:
         transactions_q = transactions_q.filter(Transaction.user_id == user_id)
-    all_transactions = transactions_q.all()
+    transactions = transactions_q.all()
+
+    # Load recurring transactions (they repeat every month)
+    recurring_q = db.query(Transaction).filter(
+        Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly"  # noqa: E712
+    )
+    if user_id:
+        recurring_q = recurring_q.filter(Transaction.user_id == user_id)
+    recurring = recurring_q.all()
 
     projection = []
 
@@ -104,16 +97,37 @@ def get_monthly_projection(
         month_end = date(year, month, _last_day(year, month))
         month_key = f"{year:04d}-{month:02d}"
 
-        income = Decimal("0")
-        expenses = Decimal("0")
-        
-        for t in all_transactions:
-            for occ_date in _get_occurrences(t, month_end):
-                if month_start <= occ_date <= month_end:
-                    if t.type == "income":
-                        income += Decimal(str(t.amount))
-                    elif t.type == "expense":
-                        expenses += Decimal(str(t.amount))
+        # Income from actual transactions this month
+        income = sum(
+            Decimal(str(t.amount))
+            for t in transactions
+            if t.type == "income" and month_start <= t.date <= month_end
+        )
+
+        # Recurring income
+        income += sum(
+            Decimal(str(t.amount))
+            for t in recurring
+            if t.type == "income"
+            and t.date <= month_end
+            and (t.end_date is None or t.end_date >= month_start)
+        )
+
+        # Expenses from actual transactions this month
+        expenses = sum(
+            Decimal(str(t.amount))
+            for t in transactions
+            if t.type == "expense" and month_start <= t.date <= month_end
+        )
+
+        # Recurring expenses
+        expenses += sum(
+            Decimal(str(t.amount))
+            for t in recurring
+            if t.type == "expense"
+            and t.date <= month_end
+            and (t.end_date is None or t.end_date >= month_start)
+        )
 
         # Installments due this month
         month_installments = sum(
