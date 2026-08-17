@@ -23,8 +23,13 @@ class PurchaseCreate(PurchaseBase):
 
 
 class PurchaseUpdate(BaseModel):
-    description: str | None = None
+    credit_card_id: uuid.UUID | None = None
     category_id: uuid.UUID | None = None
+    description: str | None = None
+    total_amount: Decimal | None = Field(None, gt=0)
+    installments: int | None = Field(None, ge=1)
+    starting_installment: int | None = Field(None, ge=1)
+    purchase_date: date | None = None
     category: str | None = None
 
 

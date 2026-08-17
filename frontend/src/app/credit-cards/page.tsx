@@ -157,12 +157,13 @@ export default function CreditCardsPage() {
 
   const openEditPurchase = (purchase: Purchase) => {
     setEditingPurchase(purchase);
+    const implicitlyPaid = purchase.installments - purchase.installment_rows.length;
     setPurchaseForm({
       credit_card_id: purchase.credit_card_id,
       description: purchase.description,
       installment_amount: purchase.installment_amount,
       installments: purchase.installments,
-      starting_installment: 1,
+      starting_installment: implicitlyPaid + 1,
       purchase_date: purchase.purchase_date,
       category_id: purchase.category_id ?? "",
     });
@@ -174,7 +175,8 @@ export default function CreditCardsPage() {
     try {
       if (editingPurchase) {
         await purchasesApi.update(editingPurchase.id, {
-          description: purchaseForm.description,
+          ...purchaseForm,
+          total_amount: purchaseForm.installment_amount * purchaseForm.installments,
           category_id: purchaseForm.category_id || null,
         });
       } else {
@@ -220,12 +222,6 @@ export default function CreditCardsPage() {
     await load();
   };
 
-  const handleInstallmentReopen = async (purchase: Purchase) => {
-    const lastPaid = [...purchase.installment_rows].reverse().find((installment) => installment.is_paid);
-    if (!lastPaid) return;
-    await installmentsApi.update(lastPaid.id, { is_paid: false, paid_account_id: null });
-    await load();
-  };
 
   const openImport = () => {
     setImportRows([]);
@@ -408,9 +404,6 @@ export default function CreditCardsPage() {
                       <Button variant="ghost" size="sm" onClick={() => handleInstallmentPaid(purchase)} disabled={purchase.installment_rows.every((installment) => installment.is_paid)}>
                         {t.creditCards.payNext}
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleInstallmentReopen(purchase)} disabled={purchase.installment_rows.every((installment) => !installment.is_paid)}>
-                        {t.creditCards.reopen}
-                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => openEditPurchase(purchase)}>{t.common.edit}</Button>
                       <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handlePurchaseDelete(purchase.id)}>
                         {t.common.delete}
@@ -435,7 +428,6 @@ export default function CreditCardsPage() {
               <Select
                 value={purchaseForm.credit_card_id}
                 onValueChange={(v: string | null) => setPurchaseForm({ ...purchaseForm, credit_card_id: v ?? "" })}
-                disabled={!!editingPurchase}
               >
                 <SelectTrigger className="min-w-0">
                   <span className="block truncate text-sm">
@@ -496,7 +488,6 @@ export default function CreditCardsPage() {
                   placeholder="0"
                   value={purchaseForm.installment_amount === 0 ? "" : purchaseForm.installment_amount}
                   onChange={(e) => setPurchaseForm({ ...purchaseForm, installment_amount: parseFloat(e.target.value) || 0 })}
-                  disabled={!!editingPurchase}
                 />
               </div>
               <div className="space-y-1.5">
@@ -506,7 +497,6 @@ export default function CreditCardsPage() {
                   type="date"
                   value={purchaseForm.purchase_date}
                   onChange={(e) => setPurchaseForm({ ...purchaseForm, purchase_date: e.target.value })}
-                  disabled={!!editingPurchase}
                 />
               </div>
             </div>
@@ -521,7 +511,6 @@ export default function CreditCardsPage() {
                   value={purchaseForm.starting_installment}
                   onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setPurchaseForm({ ...purchaseForm, starting_installment: parseInt(e.target.value) || 1 })}
-                  disabled={!!editingPurchase}
                 />
               </div>
               <div className="space-y-1.5">
@@ -533,15 +522,9 @@ export default function CreditCardsPage() {
                   value={purchaseForm.installments}
                   onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setPurchaseForm({ ...purchaseForm, installments: parseInt(e.target.value) || 1 })}
-                  disabled={!!editingPurchase}
                 />
               </div>
             </div>
-            {editingPurchase && (
-              <p className="text-xs text-muted-foreground">
-                {t.creditCards.lockedFields}
-              </p>
-            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setPurchaseDialogOpen(false)}>{t.common.cancel}</Button>
