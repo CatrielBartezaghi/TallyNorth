@@ -12,8 +12,16 @@ from app.models.user import User
 from app.schemas.cashflow import DashboardSummary, MonthlyProjection
 from app.services import cashflow_service
 from app.routers.deps import get_current_active_user
+from app.services.recurring_entry_service import sync_recurring_entries
+from app.services.transaction_sync_service import sync_credit_card_installments, sync_recurring_transactions
 
 router = APIRouter(prefix="/cashflow", tags=["Cashflow"])
+
+
+def _sync_financial_state(db: Session, user_id) -> None:
+    sync_recurring_entries(db, user_id)
+    sync_recurring_transactions(db, user_id)
+    sync_credit_card_installments(db, user_id)
 
 
 @router.get("/projection", response_model=list[MonthlyProjection])
@@ -22,7 +30,7 @@ def get_projection(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Return a monthly cashflow projection starting from the current month."""
+    _sync_financial_state(db, current_user.id)
     today = date.today()
     start = date(today.year, today.month, 1)
     raw = cashflow_service.get_monthly_projection(db, start_date=start, num_months=months, user_id=current_user.id)
@@ -35,7 +43,7 @@ def get_month_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Return cashflow summary for a specific month."""
+    _sync_financial_state(db, current_user.id)
     today = date.today()
     if month:
         year, m = int(month[:4]), int(month[5:7])
@@ -52,21 +60,17 @@ def get_dashboard(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Aggregate data for the main dashboard."""
+    _sync_financial_state(db, current_user.id)
     today = date.today()
     current_month_str = f"{today.year:04d}-{today.month:02d}"
 
-    # Current month totals
     summary_raw = cashflow_service.get_month_summary(db, year=today.year, month=today.month, user_id=current_user.id)
-
-    # Projection
     start = date(today.year, today.month, 1)
     projection_raw = cashflow_service.get_monthly_projection(
         db, start_date=start, num_months=projection_months, user_id=current_user.id
     )
     projection = [MonthlyProjection(**row) for row in projection_raw]
 
-    # Upcoming installments — next 3 months, grouped by credit card
     upcoming_raw = (
         db.query(Installment)
         .filter(
@@ -79,7 +83,6 @@ def get_dashboard(
         .all()
     )
 
-    # Group by card name
     cards_map: dict[str, dict] = {}
     for inst in upcoming_raw:
         card: CreditCard = inst.purchase.credit_card
@@ -93,14 +96,12 @@ def get_dashboard(
             }
         cards_map[card_key]["total_pending"] += Decimal(str(inst.amount))
 
-    upcoming = list(cards_map.values())
-
     return DashboardSummary(
         current_month=current_month_str,
         total_income_mtd=Decimal(str(summary_raw.get("total_income", 0))),
         total_expenses_mtd=Decimal(str(summary_raw.get("total_expenses", 0))),
         total_installments_mtd=Decimal(str(summary_raw.get("total_installments", 0))),
         net_mtd=Decimal(str(summary_raw.get("net", 0))),
-        upcoming_installments=upcoming,
+        upcoming_installments=list(cards_map.values()),
         projection=projection,
     )
