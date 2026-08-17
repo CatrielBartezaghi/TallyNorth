@@ -184,7 +184,7 @@ export default function AccountsPage() {
                 <TableHead>{t.common.name}</TableHead>
                 <TableHead>{t.common.type}</TableHead>
                 <TableHead>{t.common.currency}</TableHead>
-                <TableHead className="text-right">{t.accounts.currentBalance || t.accounts.initialBalance}</TableHead>
+                <TableHead className="text-right">{(t.accounts as any).currentBalance || (t.accounts as any).initialBalance}</TableHead>
                 <TableHead className="text-right">{t.common.actions}</TableHead>
               </TableRow>
             </TableHeader>
@@ -281,7 +281,7 @@ export default function AccountsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="initial-balance">{t.accounts.initialBalance}</Label>
+              <Label htmlFor="initial-balance">{(t.accounts as any).initialBalance}</Label>
               <Input
                 id="initial-balance"
                 type="number"
