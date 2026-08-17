@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
+from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.account import Account
@@ -59,6 +60,24 @@ def _months_between(start: date, end: date) -> list[tuple[int, int]]:
         else:
             m += 1
     return result
+
+
+def _get_occurrences(t: Transaction, end_date: date):
+    occurrence = t.date
+    final_date = min(end_date, t.end_date or end_date)
+    while occurrence <= final_date:
+        yield occurrence
+        if not t.is_recurring:
+            break
+        if t.recurrence_rule == "monthly":
+            occurrence += relativedelta(months=1)
+        elif t.recurrence_rule == "weekly":
+            occurrence += timedelta(weeks=1)
+        elif t.recurrence_rule == "yearly":
+            occurrence += relativedelta(years=1)
+        else:
+            break
+
 
 
 class Converter:
@@ -128,12 +147,13 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     categories = {c.id: c for c in db.query(Category).filter(Category.user_id == user_id).all()}
     categories_by_name = {c.name.lower(): c for c in categories.values()}
 
-    transactions = (
+    all_transactions = (
         db.query(Transaction)
         .options(joinedload(Transaction.account), joinedload(Transaction.category_ref))
-        .filter(Transaction.user_id == user_id, Transaction.date >= previous_from, Transaction.date <= date_to)
+        .filter(Transaction.user_id == user_id)
         .all()
     )
+    
     installments = (
         db.query(Installment)
         .options(
@@ -147,15 +167,15 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     def period_totals(start: date, end: date) -> tuple[Decimal, Decimal]:
         income = Decimal("0")
         expenses = Decimal("0")
-        for tx in transactions:
-            if start <= tx.date <= end:
-                converted = converter.convert(tx.amount, tx.account.currency)
-                if converted is None:
-                    continue
-                if tx.type == "income":
-                    income += converted
-                else:
-                    expenses += converted
+        for tx in all_transactions:
+            for occ_date in _get_occurrences(tx, end):
+                if start <= occ_date <= end:
+                    converted = converter.convert(tx.amount, tx.account.currency)
+                    if converted is not None:
+                        if tx.type == "income":
+                            income += converted
+                        else:
+                            expenses += converted
         for installment in installments:
             if start <= installment.due_date <= end:
                 converted = converter.convert(installment.amount, installment.purchase.credit_card.currency)
@@ -172,13 +192,14 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
         f"{year:04d}-{month:02d}": {"income": Decimal("0"), "expenses": Decimal("0")}
         for year, month in _months_between(_month_start(date_from), _month_start(date_to))
     }
-    for tx in transactions:
-        if date_from <= tx.date <= date_to:
-            converted = converter.convert(tx.amount, tx.account.currency)
-            if converted is None:
-                continue
-            key = f"{tx.date.year:04d}-{tx.date.month:02d}"
-            monthly_map[key]["income" if tx.type == "income" else "expenses"] += converted
+    for tx in all_transactions:
+        for occ_date in _get_occurrences(tx, date_to):
+            if date_from <= occ_date <= date_to:
+                converted = converter.convert(tx.amount, tx.account.currency)
+                if converted is not None:
+                    key = f"{occ_date.year:04d}-{occ_date.month:02d}"
+                    if key in monthly_map:
+                        monthly_map[key]["income" if tx.type == "income" else "expenses"] += converted
     for installment in installments:
         if date_from <= installment.due_date <= date_to:
             converted = converter.convert(installment.amount, installment.purchase.credit_card.currency)
@@ -186,34 +207,19 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
                 key = f"{installment.due_date.year:04d}-{installment.due_date.month:02d}"
                 monthly_map[key]["expenses"] += converted
 
-    today_month_start = _month_start(date.today())
-    recurring_txs = (
-        db.query(Transaction)
-        .options(joinedload(Transaction.account))
-        .filter(Transaction.user_id == user_id, Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly")  # noqa: E712
-        .all()
-    )
-    for key in monthly_map:
-        year, month = map(int, key.split("-"))
-        month_start = date(year, month, 1)
-        month_end = _month_end(month_start)
-        if month_start > today_month_start:
-            for t in recurring_txs:
-                if t.date <= month_end and (t.end_date is None or t.end_date >= month_start):
-                    converted = converter.convert(t.amount, t.account.currency)
-                    if converted is not None:
-                        monthly_map[key]["income" if t.type == "income" else "expenses"] += converted
-
+    # Process budgets and expenses by category
     expenses_by_category: defaultdict[str, Decimal] = defaultdict(Decimal)
     category_colors: dict[str, str] = {}
-    for tx in transactions:
-        if tx.type != "expense" or not (date_from <= tx.date <= date_to):
+    for tx in all_transactions:
+        if tx.type != "expense":
             continue
-        name = tx.category_ref.name if tx.category_ref else (tx.category or "Sin categoría")
-        converted = converter.convert(tx.amount, tx.account.currency)
-        if converted is not None:
-            expenses_by_category[name] += converted
-            category_colors[name] = (tx.category_ref.color if tx.category_ref else categories_by_name.get(name.lower(), None).color if name.lower() in categories_by_name else "#64748b")
+        for occ_date in _get_occurrences(tx, date_to):
+            if date_from <= occ_date <= date_to:
+                name = tx.category_ref.name if tx.category_ref else (tx.category or "Sin categoría")
+                converted = converter.convert(tx.amount, tx.account.currency)
+                if converted is not None:
+                    expenses_by_category[name] += converted
+                    category_colors[name] = (tx.category_ref.color if tx.category_ref else categories_by_name.get(name.lower(), None).color if name.lower() in categories_by_name else "#64748b")
     for installment in installments:
         if not (date_from <= installment.due_date <= date_to):
             continue
@@ -235,8 +241,10 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     )
     for account in accounts:
         balance = _decimal(account.initial_balance)
-        for tx in db.query(Transaction).filter(Transaction.user_id == user_id, Transaction.account_id == account.id).all():
-            balance += _decimal(tx.amount) if tx.type == "income" else -_decimal(tx.amount)
+        for tx in all_transactions:
+            if tx.account_id == account.id:
+                for _ in _get_occurrences(tx, date.today()):
+                    balance += _decimal(tx.amount) if tx.type == "income" else -_decimal(tx.amount)
         for inst in paid_installments:
             if inst.paid_account_id == account.id:
                 balance -= _decimal(inst.amount)
@@ -328,7 +336,15 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     ]
 
     recent_movements = []
-    for tx in sorted([t for t in transactions if date_from <= t.date <= date_to], key=lambda t: t.date, reverse=True)[:10]:
+    # For recent movements, we generate all occurrences up to date_to, and sort them.
+    recent_occurrences = []
+    for tx in all_transactions:
+        for occ_date in _get_occurrences(tx, date_to):
+            if date_from <= occ_date <= date_to:
+                recent_occurrences.append((occ_date, tx))
+    recent_occurrences.sort(key=lambda x: x[0], reverse=True)
+    
+    for occ_date, tx in recent_occurrences[:10]:
         recent_movements.append(
             {
                 "id": str(tx.id),
@@ -336,7 +352,7 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
                 "description": tx.description,
                 "category": tx.category_ref.name if tx.category_ref else tx.category,
                 "account": tx.account.name,
-                "date": tx.date,
+                "date": occ_date,
                 "amount": _decimal(tx.amount),
                 "converted_amount": converter.convert(tx.amount, tx.account.currency),
             }
@@ -353,13 +369,15 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     budget_rows = []
     for budget in budgets:
         actual = Decimal("0")
-        for tx in transactions:
+        for tx in all_transactions:
             matches_id = tx.category_id == budget.category_id
             matches_name = (tx.category or "").lower() == budget.category.name.lower()
-            if tx.type == "expense" and period_start <= tx.date <= period_end and (matches_id or matches_name):
-                converted = converter.convert(tx.amount, tx.account.currency)
-                if converted is not None:
-                    actual += converted
+            if tx.type == "expense" and (matches_id or matches_name):
+                for occ_date in _get_occurrences(tx, period_end):
+                    if period_start <= occ_date <= period_end:
+                        converted = converter.convert(tx.amount, tx.account.currency)
+                        if converted is not None:
+                            actual += converted
         budget_amount = converter.convert(budget.amount, budget.currency) or Decimal("0")
         budget_rows.append(
             {
