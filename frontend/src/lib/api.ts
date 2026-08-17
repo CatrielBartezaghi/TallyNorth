@@ -60,6 +60,7 @@ export interface Account {
   currency_id: string;
   currency: Currency;
   initial_balance: number;
+  current_balance: number;
   created_at: string;
 }
 
@@ -349,6 +350,8 @@ export const accountsApi = {
     apiFetch<Account>(`/accounts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) =>
     apiFetch<void>(`/accounts/${id}`, { method: "DELETE" }),
+  adjustBalance: (id: string, target_balance: number) =>
+    apiFetch<Account>(`/accounts/${id}/adjust`, { method: "POST", body: JSON.stringify({ target_balance }) }),
 };
 
 // ---------------------------------------------------------------------------

@@ -29,9 +29,14 @@ class AccountUpdate(BaseModel):
     initial_balance: Decimal | None = None
 
 
+class AccountAdjustBalance(BaseModel):
+    target_balance: Decimal
+
+
 class AccountRead(AccountBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     created_at: datetime
     currency: CurrencyRead
+    current_balance: Decimal = Decimal("0.00")
