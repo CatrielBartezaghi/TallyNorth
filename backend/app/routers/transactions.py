@@ -9,6 +9,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
 from app.routers.deps import get_current_active_user
+from app.services.transaction_sync_service import sync_recurring_transactions
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 
@@ -22,6 +23,7 @@ def list_transactions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    sync_recurring_transactions(db, current_user.id)
     query = db.query(Transaction).filter(Transaction.user_id == current_user.id)
     if account_id:
         query = query.filter(Transaction.account_id == account_id)
