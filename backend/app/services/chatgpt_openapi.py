@@ -2,6 +2,22 @@ from copy import deepcopy
 
 
 ACTION_ROOT = "/integrations/chatgpt"
+HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+
+# Keep the Custom GPT surface intentionally small. Other integration endpoints may
+# remain available internally without being advertised to the GPT.
+ALLOWED_OPERATION_IDS = {
+    "getFinanceContext",
+    "getFinancialSummary",
+    "getCashflowProjection",
+    "searchFinanceEntries",
+    "getUpcomingInstallments",
+    "getAccountBalances",
+    "createTransaction",
+    "createCreditCardPurchase",
+    "createFinanceEntriesBatch",
+    "setAccountBalance",
+}
 
 
 def _schema_names(value) -> set[str]:
@@ -67,12 +83,23 @@ def build_chatgpt_action_openapi(
         root_index = source_path.find(ACTION_ROOT)
         if root_index < 0 or source_path.endswith("/openapi.json"):
             continue
+
+        selected_operations = {
+            method: deepcopy(operation)
+            for method, operation in path_item.items()
+            if method.lower() in HTTP_METHODS
+            and isinstance(operation, dict)
+            and operation.get("operationId") in ALLOWED_OPERATION_IDS
+        }
+        if not selected_operations:
+            continue
+
         normalized_path = source_path[root_index:]
-        selected_paths[normalized_path] = deepcopy(path_item)
+        selected_paths[normalized_path] = selected_operations
 
     for path_item in selected_paths.values():
         for method, operation in path_item.items():
-            if method.lower() not in {"get", "post", "put", "patch", "delete"}:
+            if method.lower() not in HTTP_METHODS:
                 continue
             operation["security"] = [{"bearerAuth": []}]
             _remove_query_nullability(operation)
@@ -82,10 +109,10 @@ def build_chatgpt_action_openapi(
         "info": {
             "title": "TallyNorth GPT Actions",
             "description": (
-                "Consulta información financiera y ejecuta cargas confirmadas "
-                "para el usuario autenticado."
+                "Consulta finanzas y registra movimientos, compras y ajustes "
+                "de saldo confirmados para el usuario autenticado."
             ),
-            "version": "1.1.1",
+            "version": "1.2.0",
         },
         "servers": [{"url": server_url.rstrip("/")}],
         "security": [{"bearerAuth": []}],
