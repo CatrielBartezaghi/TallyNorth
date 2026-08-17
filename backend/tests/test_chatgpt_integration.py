@@ -56,18 +56,24 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
             "/integrations/chatgpt/investments",
             "/integrations/chatgpt/investment-valuations",
             "/integrations/chatgpt/installment-payments",
+            "/integrations/chatgpt/account-balances",
         }
         self.assertEqual(set(schema["paths"]), expected_paths)
 
         operation_ids = set()
         for path_item in schema["paths"].values():
-            method, operation = next(iter(path_item.items()))
-            operation_ids.add(operation["operationId"])
-            self.assertEqual(
-                operation["x-openai-isConsequential"],
-                method != "get",
-            )
-        self.assertEqual(len(operation_ids), 14)
+            for method, operation in path_item.items():
+                if method.lower() not in {"get", "post", "put", "patch", "delete"}:
+                    continue
+                operation_ids.add(operation["operationId"])
+                self.assertEqual(
+                    operation["x-openai-isConsequential"],
+                    method != "get",
+                )
+
+        self.assertEqual(len(operation_ids), 16)
+        self.assertIn("getAccountBalances", operation_ids)
+        self.assertIn("setAccountBalance", operation_ids)
 
     def test_optional_query_parameters_do_not_advertise_literal_null(self):
         schema = build_chatgpt_action_openapi(
@@ -98,11 +104,13 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
 
         self.assertLess(len(json.dumps(schema)), 100_000)
         for path_item in schema["paths"].values():
-            _, operation = next(iter(path_item.items()))
-            self.assertLessEqual(len(operation.get("summary", "")), 300)
-            self.assertLessEqual(len(operation.get("description", "")), 300)
-            for parameter in operation.get("parameters", []):
-                self.assertLessEqual(len(parameter.get("description", "")), 700)
+            for method, operation in path_item.items():
+                if method.lower() not in {"get", "post", "put", "patch", "delete"}:
+                    continue
+                self.assertLessEqual(len(operation.get("summary", "")), 300)
+                self.assertLessEqual(len(operation.get("description", "")), 300)
+                for parameter in operation.get("parameters", []):
+                    self.assertLessEqual(len(parameter.get("description", "")), 700)
 
     def test_default_token_scopes_cover_expanded_actions(self):
         self.assertEqual(
