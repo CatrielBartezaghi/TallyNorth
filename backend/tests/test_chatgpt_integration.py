@@ -50,12 +50,6 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
             "/integrations/chatgpt/transactions",
             "/integrations/chatgpt/purchases",
             "/integrations/chatgpt/entries/batch",
-            "/integrations/chatgpt/budgets",
-            "/integrations/chatgpt/saving-goals",
-            "/integrations/chatgpt/saving-goal-progress",
-            "/integrations/chatgpt/investments",
-            "/integrations/chatgpt/investment-valuations",
-            "/integrations/chatgpt/installment-payments",
             "/integrations/chatgpt/account-balances",
         }
         self.assertEqual(set(schema["paths"]), expected_paths)
@@ -71,9 +65,21 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
                     method != "get",
                 )
 
-        self.assertEqual(len(operation_ids), 16)
-        self.assertIn("getAccountBalances", operation_ids)
-        self.assertIn("setAccountBalance", operation_ids)
+        self.assertEqual(
+            operation_ids,
+            {
+                "getFinanceContext",
+                "getFinancialSummary",
+                "getCashflowProjection",
+                "searchFinanceEntries",
+                "getUpcomingInstallments",
+                "getAccountBalances",
+                "createTransaction",
+                "createCreditCardPurchase",
+                "createFinanceEntriesBatch",
+                "setAccountBalance",
+            },
+        )
 
     def test_optional_query_parameters_do_not_advertise_literal_null(self):
         schema = build_chatgpt_action_openapi(
