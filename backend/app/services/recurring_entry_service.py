@@ -143,11 +143,14 @@ def sync_recurring_entries(db: Session, user_id: uuid.UUID | str) -> int:
     generated = 0
     changed = False
     for entry in entries:
-        next_date = (
-            entry.start_date
-            if entry.last_generated_date is None
-            else advance_recurrence(entry.last_generated_date, entry.frequency)
-        )
+        if entry.last_generated_date is None:
+            next_date = entry.start_date
+        elif entry.start_date > entry.last_generated_date:
+            # A schedule edit may move the next occurrence forward. Never
+            # recreate already-materialized history under the new schedule.
+            next_date = entry.start_date
+        else:
+            next_date = advance_recurrence(entry.last_generated_date, entry.frequency)
 
         while next_date <= today:
             if entry.end_date is not None and next_date > entry.end_date:
