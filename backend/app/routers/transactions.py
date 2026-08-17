@@ -9,6 +9,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.transaction import TransactionCreate, TransactionRead, TransactionUpdate
 from app.routers.deps import get_current_active_user
+from app.services.recurring_entry_service import sync_recurring_entries
 from app.services.transaction_sync_service import sync_recurring_transactions
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
@@ -23,6 +24,7 @@ def list_transactions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
+    sync_recurring_entries(db, current_user.id)
     sync_recurring_transactions(db, current_user.id)
     query = db.query(Transaction).filter(Transaction.user_id == current_user.id)
     if account_id:
@@ -38,7 +40,7 @@ def list_transactions(
 
 @router.post("/", response_model=TransactionRead, status_code=status.HTTP_201_CREATED)
 def create_transaction(
-    payload: TransactionCreate, 
+    payload: TransactionCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -53,7 +55,7 @@ def create_transaction(
 
 @router.get("/{transaction_id}", response_model=TransactionRead)
 def get_transaction(
-    transaction_id: str, 
+    transaction_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -65,8 +67,8 @@ def get_transaction(
 
 @router.put("/{transaction_id}", response_model=TransactionRead)
 def update_transaction(
-    transaction_id: str, 
-    payload: TransactionUpdate, 
+    transaction_id: str,
+    payload: TransactionUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -82,7 +84,7 @@ def update_transaction(
 
 @router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(
-    transaction_id: str, 
+    transaction_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
