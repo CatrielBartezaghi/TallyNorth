@@ -58,6 +58,7 @@ def create_purchase(
     purchase = CreditCardPurchase(
         user_id=current_user.id,
         credit_card_id=payload.credit_card_id,
+        category_id=payload.category_id,
         description=payload.description,
         total_amount=payload.total_amount,
         installments=payload.installments,
@@ -82,6 +83,7 @@ def create_purchase(
     db.commit()
     db.refresh(purchase)
     return purchase
+
 
 @router.post("/bulk", response_model=list[PurchaseRead], status_code=status.HTTP_201_CREATED)
 def create_purchases_bulk(
@@ -126,6 +128,7 @@ def create_purchases_bulk(
         purchase = CreditCardPurchase(
             user_id=current_user.id,
             credit_card_id=item.credit_card_id,
+            category_id=item.category_id,
             description=item.description,
             total_amount=item.total_amount,
             installments=item.installments,
@@ -146,7 +149,7 @@ def create_purchases_bulk(
                 amount=installment_amount,
             )
             db.add(installment)
-        
+
         created_purchases.append(purchase)
 
     db.commit()
@@ -184,7 +187,7 @@ def update_purchase(
     if not purchase:
         raise HTTPException(status_code=404, detail="Purchase not found")
     update_data = payload.model_dump(exclude_none=True)
-    
+
     # Check if we need to regenerate installments
     structural_fields = {"total_amount", "installments", "purchase_date", "credit_card_id", "starting_installment"}
     needs_regeneration = any(k in update_data for k in structural_fields)
@@ -212,7 +215,7 @@ def update_purchase(
             closing_day=card.closing_day,
             due_day=card.due_day,
         )
-        
+
         # Delete old installments
         db.query(Installment).filter(Installment.purchase_id == purchase.id).delete()
         db.flush()
@@ -221,9 +224,9 @@ def update_purchase(
         starting_installment = update_data.get("starting_installment", 1)
         num_installments_to_generate = purchase.installments - starting_installment + 1
         due_dates = generate_installment_dates(
-            purchase.first_installment_date, 
-            num_installments_to_generate, 
-            card.due_day
+            purchase.first_installment_date,
+            num_installments_to_generate,
+            card.due_day,
         )
 
         for i, due_date in enumerate(due_dates, start=starting_installment):
