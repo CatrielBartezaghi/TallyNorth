@@ -91,10 +91,8 @@ def update_recurring_entry(
     validated = RecurringEntryCreate(**merged)
     category_name = _validate_references(db, current_user.id, validated)
 
-    schedule_fields = {"frequency", "start_date", "destination_type", "account_id", "credit_card_id"}
-    if schedule_fields.intersection(payload.model_dump(exclude_unset=True)):
-        entry.last_generated_date = None
-
+    # Already-materialized occurrences are financial history. Editing a rule
+    # changes only future occurrences, so we intentionally keep the cursor.
     for field, value in validated.model_dump().items():
         setattr(entry, field, value)
     entry.category = category_name
