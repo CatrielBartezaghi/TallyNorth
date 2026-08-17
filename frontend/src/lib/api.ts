@@ -312,11 +312,7 @@ export interface PurchasePayload {
   category?: string | null;
 }
 
-export interface PurchaseUpdatePayload {
-  description?: string;
-  category_id?: string | null;
-  category?: string | null;
-}
+export type PurchaseUpdatePayload = Partial<PurchasePayload>;
 
 export type CategoryPayload = Omit<Category, "id" | "created_at">;
 export type BudgetPayload = Omit<Budget, "id" | "created_at" | "category" | "currency">;
