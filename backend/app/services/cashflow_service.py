@@ -1,29 +1,19 @@
-"""
-Cashflow projection service.
-
-Computes a month-by-month projection of:
-  - Total income (from transactions)
-  - Total expenses (from transactions)
-  - Total installment charges (from installments table)
-  - Net cashflow = income - expenses - installments
-
-Recurring transactions are expanded on-the-fly for projection purposes
-(they are NOT stored as future rows in the DB).
-"""
+"""Cashflow projection service."""
 
 import calendar
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.installment import Installment
+from app.models.recurring_entry import RecurringEntry
 from app.models.transaction import Transaction
+from app.services.recurring_entry_service import occurrence_dates_between, projected_card_due_date
 
 
 def _months_range(start: date, num_months: int) -> list[tuple[int, int]]:
-    """Return a list of (year, month) tuples starting from the given date."""
     result = []
     year, month = start.year, start.month
     for _ in range(num_months):
@@ -46,20 +36,7 @@ def get_monthly_projection(
     num_months: int = 6,
     user_id: uuid.UUID | None = None,
 ) -> list[dict]:
-    """
-    Return a list of monthly projection dictionaries for `num_months` starting
-    from `start_date`.
-
-    Each dict has:
-      month         : "YYYY-MM"
-      total_income  : Decimal
-      total_expenses: Decimal
-      total_installments: Decimal
-      net           : Decimal
-    """
     months = _months_range(start_date, num_months)
-
-    # Load all non-paid installments whose due_date falls in our window
     first_month_start = date(months[0][0], months[0][1], 1)
     last_year, last_month = months[-1]
     last_month_end = date(last_year, last_month, _last_day(last_year, last_month))
@@ -73,70 +50,101 @@ def get_monthly_projection(
         installments_q = installments_q.filter(Installment.user_id == user_id)
     installments = installments_q.all()
 
-    # Load all transactions in the window
+    # Legacy recurring templates are not actual movements themselves.
     transactions_q = db.query(Transaction).filter(
         Transaction.date >= first_month_start,
         Transaction.date <= last_month_end,
+        Transaction.is_recurring == False,  # noqa: E712
     )
     if user_id:
         transactions_q = transactions_q.filter(Transaction.user_id == user_id)
     transactions = transactions_q.all()
 
-    # Load recurring transactions (they repeat every month)
-    recurring_q = db.query(Transaction).filter(
-        Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly"  # noqa: E712
+    legacy_recurring_q = db.query(Transaction).filter(
+        Transaction.is_recurring == True,  # noqa: E712
+        Transaction.recurrence_rule == "monthly",
     )
     if user_id:
-        recurring_q = recurring_q.filter(Transaction.user_id == user_id)
-    recurring = recurring_q.all()
+        legacy_recurring_q = legacy_recurring_q.filter(Transaction.user_id == user_id)
+    legacy_recurring = legacy_recurring_q.all()
+
+    unified_q = db.query(RecurringEntry).options(
+        joinedload(RecurringEntry.credit_card),
+        joinedload(RecurringEntry.account),
+    ).filter(RecurringEntry.active.is_(True))
+    if user_id:
+        unified_q = unified_q.filter(RecurringEntry.user_id == user_id)
+    unified_entries = unified_q.all()
+
+    # Only future unified occurrences are projected. Today/past are materialized
+    # by sync_recurring_entries and therefore already represented above.
+    future_from = max(first_month_start, date.today() + timedelta(days=1))
+    projected_account_occurrences: list[tuple[RecurringEntry, date]] = []
+    projected_card_installments: list[tuple[RecurringEntry, date]] = []
+    if future_from <= last_month_end:
+        for entry in unified_entries:
+            for occurrence_date in occurrence_dates_between(entry, future_from, last_month_end):
+                if entry.destination_type == "account":
+                    projected_account_occurrences.append((entry, occurrence_date))
+                else:
+                    due_date = projected_card_due_date(entry, occurrence_date)
+                    if first_month_start <= due_date <= last_month_end:
+                        projected_card_installments.append((entry, due_date))
 
     projection = []
-
     for year, month in months:
         month_start = date(year, month, 1)
         month_end = date(year, month, _last_day(year, month))
         month_key = f"{year:04d}-{month:02d}"
 
-        # Income from actual transactions this month
         income = sum(
             Decimal(str(t.amount))
             for t in transactions
             if t.type == "income" and month_start <= t.date <= month_end
         )
-
-        # Recurring income
-        income += sum(
-            Decimal(str(t.amount))
-            for t in recurring
-            if t.type == "income"
-            and t.date <= month_end
-            and (t.end_date is None or t.end_date >= month_start)
-        )
-
-        # Expenses from actual transactions this month
         expenses = sum(
             Decimal(str(t.amount))
             for t in transactions
             if t.type == "expense" and month_start <= t.date <= month_end
         )
 
-        # Recurring expenses
+        # Backward-compatible projection for old monthly transaction templates.
+        income += sum(
+            Decimal(str(t.amount))
+            for t in legacy_recurring
+            if t.type == "income"
+            and t.date <= month_end
+            and (t.end_date is None or t.end_date >= month_start)
+        )
         expenses += sum(
             Decimal(str(t.amount))
-            for t in recurring
+            for t in legacy_recurring
             if t.type == "expense"
             and t.date <= month_end
             and (t.end_date is None or t.end_date >= month_start)
         )
 
-        # Installments due this month
+        income += sum(
+            Decimal(str(entry.amount))
+            for entry, occurrence_date in projected_account_occurrences
+            if entry.type == "income" and month_start <= occurrence_date <= month_end
+        )
+        expenses += sum(
+            Decimal(str(entry.amount))
+            for entry, occurrence_date in projected_account_occurrences
+            if entry.type == "expense" and month_start <= occurrence_date <= month_end
+        )
+
         month_installments = sum(
             Decimal(str(i.amount))
             for i in installments
             if i.due_date.year == year and i.due_date.month == month
         )
-
-        net = income - expenses - month_installments
+        month_installments += sum(
+            Decimal(str(entry.amount))
+            for entry, due_date in projected_card_installments
+            if month_start <= due_date <= month_end
+        )
 
         projection.append(
             {
@@ -144,7 +152,7 @@ def get_monthly_projection(
                 "total_income": income,
                 "total_expenses": expenses,
                 "total_installments": month_installments,
-                "net": net,
+                "net": income - expenses - month_installments,
             }
         )
 
@@ -152,6 +160,5 @@ def get_monthly_projection(
 
 
 def get_month_summary(db: Session, year: int, month: int, user_id: uuid.UUID | None = None) -> dict:
-    """Return a cashflow summary for a single month."""
     result = get_monthly_projection(db, start_date=date(year, month, 1), num_months=1, user_id=user_id)
     return result[0] if result else {}
