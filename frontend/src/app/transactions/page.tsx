@@ -1,71 +1,83 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   accountsApi,
   categoriesApi,
+  creditCardsApi,
   transactionsApi,
   type Account,
   type Category,
+  type CreditCard,
   type RecurrenceRule,
   type Transaction,
   type TransactionType,
 } from "@/lib/api";
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
+  recurringEntriesApi,
+  type RecurringEntry,
+  type RecurringEntryPayload,
+} from "@/lib/recurring-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger,
 } from "@/components/ui/select";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 import { useLanguage } from "@/lib/LanguageContext";
 import type { Language } from "@/lib/translations";
 
-interface TransactionForm {
+const today = () => new Date().toISOString().slice(0, 10);
+
+type DestinationValue = `account:${string}` | `credit_card:${string}` | "";
+
+interface MovementForm {
   account_id: string;
   type: TransactionType;
   amount: number;
   description: string;
   category_id: string;
   date: string;
-  is_recurring: boolean;
-  recurrence_rule: RecurrenceRule;
+}
+
+interface RecurringForm {
+  type: TransactionType;
+  amount: number;
+  description: string;
+  category_id: string;
+  frequency: RecurrenceRule;
+  start_date: string;
   end_date: string;
+  active: boolean;
+  destination: DestinationValue;
 }
 
-interface TransactionFilters {
-  account_id: string;
-  type: "all" | TransactionType;
-  date_from: string;
-  date_to: string;
-}
-
-const today = () => new Date().toISOString().slice(0, 10);
-
-const EMPTY_FORM: TransactionForm = {
+const EMPTY_MOVEMENT: MovementForm = {
   account_id: "",
   type: "expense",
   amount: 0,
   description: "",
   category_id: "",
   date: today(),
-  is_recurring: false,
-  recurrence_rule: "monthly",
-  end_date: "",
 };
 
-const EMPTY_FILTERS: TransactionFilters = {
-  account_id: "",
-  type: "all",
-  date_from: "",
-  date_to: "",
+const EMPTY_RECURRING: RecurringForm = {
+  type: "expense",
+  amount: 0,
+  description: "",
+  category_id: "",
+  frequency: "monthly",
+  start_date: today(),
+  end_date: "",
+  active: true,
+  destination: "",
 };
 
 const TYPE_COLORS: Record<TransactionType, string> = {
@@ -77,57 +89,54 @@ function localeFor(lang: Language) {
   return lang === "es" ? "es-AR" : "en-US";
 }
 
-function formatAmount(amount: number, lang: Language, account?: Account) {
-  if (!account) return amount.toLocaleString(localeFor(lang), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${account.currency.symbol} ${amount.toLocaleString(localeFor(lang), {
-    minimumFractionDigits: account.currency.decimal_places,
-    maximumFractionDigits: account.currency.decimal_places,
-  })}`;
-}
-
 function formatDate(value: string, lang: Language) {
   return new Date(`${value}T00:00:00`).toLocaleDateString(localeFor(lang));
 }
 
+function formatAmount(amount: number, lang: Language, symbol?: string) {
+  const value = amount.toLocaleString(localeFor(lang), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return symbol ? `${symbol} ${value}` : value;
+}
+
 export default function TransactionsPage() {
+  const { lang, t } = useLanguage();
+  const es = lang === "es";
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [recurring, setRecurring] = useState<RecurringEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [cards, setCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [filters, setFilters] = useState<TransactionFilters>(EMPTY_FILTERS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Transaction | null>(null);
-  const [form, setForm] = useState<TransactionForm>(EMPTY_FORM);
+
+  const [movementOpen, setMovementOpen] = useState(false);
+  const [editingMovement, setEditingMovement] = useState<Transaction | null>(null);
+  const [movementForm, setMovementForm] = useState<MovementForm>(EMPTY_MOVEMENT);
+
+  const [recurringOpen, setRecurringOpen] = useState(false);
+  const [editingRecurring, setEditingRecurring] = useState<RecurringEntry | null>(null);
+  const [recurringForm, setRecurringForm] = useState<RecurringForm>(EMPTY_RECURRING);
   const [saving, setSaving] = useState(false);
-  const { lang, t } = useLanguage();
 
-  const accountMap = useMemo(
-    () => new Map(accounts.map((account) => [account.id, account])),
-    [accounts],
-  );
+  const accountMap = useMemo(() => new Map(accounts.map((item) => [item.id, item])), [accounts]);
+  const cardMap = useMemo(() => new Map(cards.map((item) => [item.id, item])), [cards]);
+  const categoryMap = useMemo(() => new Map(categories.map((item) => [item.id, item])), [categories]);
 
-  const categoryMap = useMemo(
-    () => new Map(categories.map((category) => [category.id, category])),
-    [categories],
-  );
-
-  const load = async (showLoading = true, nextFilters = filters) => {
+  const load = async () => {
     try {
-      if (showLoading) setLoading(true);
-      const params = {
-        account_id: nextFilters.account_id || undefined,
-        type: nextFilters.type === "all" ? undefined : nextFilters.type,
-        date_from: nextFilters.date_from || undefined,
-        date_to: nextFilters.date_to || undefined,
-      };
-      const [transactionRows, accountRows, categoryRows] = await Promise.all([
-        transactionsApi.list(params),
+      setLoading(true);
+      const [transactionRows, recurringRows, accountRows, cardRows, categoryRows] = await Promise.all([
+        transactionsApi.list(),
+        recurringEntriesApi.list(),
         accountsApi.list(),
+        creditCardsApi.list(),
         categoriesApi.list(),
       ]);
       setTransactions(transactionRows);
+      setRecurring(recurringRows);
       setAccounts(accountRows);
+      setCards(cardRows);
       setCategories(categoryRows);
       setError(null);
     } catch (e: unknown) {
@@ -137,51 +146,48 @@ export default function TransactionsPage() {
     }
   };
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
-  useEffect(() => { void load(false); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, []);
 
-  const openCreate = () => {
-    setEditing(null);
-    setForm({ ...EMPTY_FORM, account_id: accounts[0]?.id ?? "", date: today() });
-    setDialogOpen(true);
+  const categoryOptions = (type: TransactionType) =>
+    categories.filter((category) => category.type === type || category.type === "both");
+
+  const openMovementCreate = () => {
+    setEditingMovement(null);
+    setMovementForm({ ...EMPTY_MOVEMENT, account_id: accounts[0]?.id ?? "", date: today() });
+    setMovementOpen(true);
   };
 
-  const openEdit = (transaction: Transaction) => {
-    setEditing(transaction);
-    setForm({
+  const openMovementEdit = (transaction: Transaction) => {
+    setEditingMovement(transaction);
+    setMovementForm({
       account_id: transaction.account_id,
       type: transaction.type,
       amount: transaction.amount,
       description: transaction.description,
       category_id: transaction.category_id ?? "",
       date: transaction.date,
-      is_recurring: transaction.is_recurring,
-      recurrence_rule: transaction.recurrence_rule ?? "monthly",
-      end_date: transaction.end_date ?? "",
     });
-    setDialogOpen(true);
+    setMovementOpen(true);
   };
 
-  const handleSave = async () => {
+  const saveMovement = async () => {
     setSaving(true);
     try {
       const payload = {
-        account_id: form.account_id,
-        type: form.type,
-        amount: form.amount,
-        description: form.description,
-        category_id: form.category_id || null,
-        date: form.date,
-        is_recurring: form.is_recurring,
-        recurrence_rule: form.is_recurring ? form.recurrence_rule : null,
-        end_date: form.is_recurring && form.end_date ? form.end_date : null,
+        account_id: movementForm.account_id,
+        type: movementForm.type,
+        amount: movementForm.amount,
+        description: movementForm.description,
+        category_id: movementForm.category_id || null,
+        date: movementForm.date,
+        is_recurring: false,
+        recurrence_rule: null,
+        end_date: null,
       };
-      if (editing) {
-        await transactionsApi.update(editing.id, payload);
-      } else {
-        await transactionsApi.create(payload);
-      }
-      setDialogOpen(false);
+      if (editingMovement) await transactionsApi.update(editingMovement.id, payload);
+      else await transactionsApi.create(payload);
+      setMovementOpen(false);
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t.transactions.saveError);
@@ -190,8 +196,8 @@ export default function TransactionsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm(t.transactions.confirmDelete)) return;
+  const deleteMovement = async (id: string) => {
+    if (!confirm(es ? "¿Eliminar este movimiento?" : "Delete this transaction?")) return;
     try {
       await transactionsApi.delete(id);
       await load();
@@ -200,312 +206,313 @@ export default function TransactionsPage() {
     }
   };
 
-  const applyFilters = async () => {
-    await load(true, filters);
+  const defaultDestination = (type: TransactionType): DestinationValue => {
+    if (accounts[0]) return `account:${accounts[0].id}`;
+    if (type === "expense" && cards[0]) return `credit_card:${cards[0].id}`;
+    return "";
   };
 
-  const clearFilters = async () => {
-    setFilters(EMPTY_FILTERS);
-    await load(true, EMPTY_FILTERS);
+  const openRecurringCreate = () => {
+    setEditingRecurring(null);
+    setRecurringForm({ ...EMPTY_RECURRING, start_date: today(), destination: defaultDestination("expense") });
+    setRecurringOpen(true);
   };
 
-  const transactionTypeLabel = (type: TransactionType) => t.enums[type];
-  const recurrenceLabel = (rule: RecurrenceRule) => t.enums[rule];
+  const openRecurringEdit = (entry: RecurringEntry) => {
+    setEditingRecurring(entry);
+    const destination: DestinationValue = entry.destination_type === "account"
+      ? `account:${entry.account_id}`
+      : `credit_card:${entry.credit_card_id}`;
+    setRecurringForm({
+      type: entry.type,
+      amount: entry.amount,
+      description: entry.description,
+      category_id: entry.category_id ?? "",
+      frequency: entry.frequency,
+      start_date: entry.start_date,
+      end_date: entry.end_date ?? "",
+      active: entry.active,
+      destination,
+    });
+    setRecurringOpen(true);
+  };
+
+  const saveRecurring = async () => {
+    if (!recurringForm.destination) return;
+    setSaving(true);
+    try {
+      const [destinationType, destinationId] = recurringForm.destination.split(":") as ["account" | "credit_card", string];
+      const payload: RecurringEntryPayload = {
+        type: recurringForm.type,
+        amount: recurringForm.amount,
+        description: recurringForm.description,
+        category_id: recurringForm.category_id || null,
+        frequency: recurringForm.frequency,
+        start_date: recurringForm.start_date,
+        end_date: recurringForm.end_date || null,
+        active: recurringForm.active,
+        destination_type: destinationType,
+        account_id: destinationType === "account" ? destinationId : null,
+        credit_card_id: destinationType === "credit_card" ? destinationId : null,
+      };
+      if (editingRecurring) await recurringEntriesApi.update(editingRecurring.id, payload);
+      else await recurringEntriesApi.create(payload);
+      setRecurringOpen(false);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : (es ? "No se pudo guardar el recurrente" : "Failed to save recurring entry"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteRecurring = async (id: string) => {
+    if (!confirm(es ? "¿Eliminar este recurrente? Los movimientos ya generados se conservan." : "Delete this recurring entry? Existing generated movements are kept.")) return;
+    try {
+      await recurringEntriesApi.delete(id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : (es ? "No se pudo eliminar" : "Delete failed"));
+    }
+  };
+
+  const recurringDestinationName = (entry: RecurringEntry) => {
+    if (entry.destination_type === "account") return accountMap.get(entry.account_id ?? "")?.name ?? "-";
+    return cardMap.get(entry.credit_card_id ?? "")?.name ?? "-";
+  };
+
+  const recurringSymbol = (entry: RecurringEntry) => {
+    if (entry.destination_type === "account") return accountMap.get(entry.account_id ?? "")?.currency.symbol;
+    return cardMap.get(entry.credit_card_id ?? "")?.currency.symbol;
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{t.transactions.title}</h1>
           <p className="mt-1 text-muted-foreground">
-            {t.transactions.subtitle}
+            {es ? "Movimientos reales y reglas recurrentes en un solo lugar." : "Actual movements and recurring rules in one place."}
           </p>
         </div>
-        <Button onClick={openCreate} disabled={accounts.length === 0}>
-          {t.transactions.add}
-        </Button>
-      </div>
-
-      {accounts.length === 0 && !loading && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
-          {t.transactions.noAccounts} <Link href="/accounts" className="underline">{t.accounts.title}</Link>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={openRecurringCreate} disabled={accounts.length === 0 && cards.length === 0}>
+            {es ? "+ Agregar recurrente" : "+ Add recurring"}
+          </Button>
+          <Button onClick={openMovementCreate} disabled={accounts.length === 0}>
+            {t.transactions.add}
+          </Button>
         </div>
-      )}
+      </div>
 
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
-        </div>
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 rounded-lg border border-border p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="space-y-1.5">
-          <Label>{t.transactions.account}</Label>
-          <Select
-            value={filters.account_id}
-            onValueChange={(v: string | null) => setFilters({ ...filters, account_id: v ?? "" })}
-          >
-            <SelectTrigger className="w-full min-w-0">
-              <span className="block truncate text-sm">
-                {filters.account_id ? accountMap.get(filters.account_id)?.name : t.transactions.allAccounts}
-              </span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">{t.transactions.allAccounts}</SelectItem>
-              {accounts.map((account) => (
-                <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <section className="space-y-3">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold">{es ? "Recurrentes" : "Recurring"}</h2>
+            <p className="text-sm text-muted-foreground">
+              {es ? "La frecuencia es independiente del destino: cuenta o tarjeta." : "Frequency is independent from destination: account or card."}
+            </p>
+          </div>
         </div>
-        <div className="space-y-1.5">
-          <Label>{t.common.type}</Label>
-          <Select
-            value={filters.type}
-            onValueChange={(v: string | null) => setFilters({ ...filters, type: (v ?? "all") as TransactionFilters["type"] })}
-          >
-            <SelectTrigger className="w-full">
-              <span className="text-sm">{filters.type === "all" ? t.common.all : transactionTypeLabel(filters.type)}</span>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t.common.all}</SelectItem>
-              <SelectItem value="income">{t.enums.income}</SelectItem>
-              <SelectItem value="expense">{t.enums.expense}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="date-from">{t.transactions.from}</Label>
-          <Input id="date-from" type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="date-to">{t.transactions.to}</Label>
-          <Input id="date-to" type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} />
-        </div>
-        <div className="flex items-end gap-2">
-          <Button onClick={applyFilters}>{t.common.apply}</Button>
-          <Button variant="ghost" onClick={clearFilters}>{t.common.clear}</Button>
-        </div>
-      </div>
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">{t.common.loading}</p>
-      ) : transactions.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-12 text-center text-muted-foreground">
-          <p className="text-lg">{t.transactions.noTransactions}</p>
-          <p className="mt-1 text-sm">{t.transactions.emptyHint}</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t.common.date}</TableHead>
-                <TableHead>{t.transactions.account}</TableHead>
-                <TableHead>{t.common.type}</TableHead>
-                <TableHead>{t.common.description}</TableHead>
-                <TableHead>{t.common.category}</TableHead>
-                <TableHead>{t.transactions.recurring}</TableHead>
-                <TableHead className="text-right">{t.common.amount}</TableHead>
-                <TableHead className="text-right">{t.common.actions}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions.map((transaction) => {
-                const account = accountMap.get(transaction.account_id);
-                return (
-                  <TableRow key={transaction.id}>
-                    <TableCell>{formatDate(transaction.date, lang)}</TableCell>
-                    <TableCell className="font-medium">{account?.name ?? t.transactions.unknownAccount}</TableCell>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">{t.common.loading}</p>
+        ) : recurring.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            {es ? "Todavía no hay reglas recurrentes." : "No recurring rules yet."}
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.description}</TableHead>
+                  <TableHead>{t.common.type}</TableHead>
+                  <TableHead>{es ? "Destino" : "Destination"}</TableHead>
+                  <TableHead>{t.transactions.frequency}</TableHead>
+                  <TableHead>{es ? "Inicio" : "Starts"}</TableHead>
+                  <TableHead>{es ? "Estado" : "Status"}</TableHead>
+                  <TableHead className="text-right">{t.common.amount}</TableHead>
+                  <TableHead className="text-right">{t.common.actions}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recurring.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="font-medium">{entry.description}</TableCell>
+                    <TableCell><Badge variant="outline" className={TYPE_COLORS[entry.type]}>{t.enums[entry.type]}</Badge></TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={TYPE_COLORS[transaction.type]}>
-                        {transactionTypeLabel(transaction.type)}
-                      </Badge>
+                      <div className="flex flex-col">
+                        <span>{recurringDestinationName(entry)}</span>
+                        <span className="text-xs text-muted-foreground">{entry.destination_type === "account" ? (es ? "Cuenta" : "Account") : (es ? "Tarjeta" : "Card")}</span>
+                      </div>
                     </TableCell>
-                    <TableCell>{transaction.description}</TableCell>
-                    <TableCell className="text-muted-foreground">{transaction.category_id ? categoryMap.get(transaction.category_id)?.name : (transaction.category ?? "-")}</TableCell>
-                    <TableCell>
-                      {transaction.is_recurring ? (
-                        <div className="flex flex-col items-start gap-1">
-                          {transaction.recurrence_rule && <Badge variant="outline">{recurrenceLabel(transaction.recurrence_rule)}</Badge>}
-                          {transaction.end_date && (
-                            <span className="text-xs text-muted-foreground">
-                              {t.transactions.until} {formatDate(transaction.end_date, lang)}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">{t.transactions.no}</span>
-                      )}
+                    <TableCell>{t.enums[entry.frequency]}</TableCell>
+                    <TableCell>{formatDate(entry.start_date, lang)}</TableCell>
+                    <TableCell><Badge variant={entry.active ? "outline" : "secondary"}>{entry.active ? t.common.active : t.common.inactive}</Badge></TableCell>
+                    <TableCell className={`text-right font-mono ${entry.type === "income" ? "text-emerald-400" : "text-red-400"}`}>
+                      {entry.type === "income" ? "+" : "-"}{formatAmount(entry.amount, lang, recurringSymbol(entry))}
                     </TableCell>
-                    <TableCell className={`text-right font-mono ${transaction.type === "income" ? "text-emerald-400" : "text-red-400"}`}>
-                      {transaction.type === "income" ? "+" : "-"}{formatAmount(transaction.amount, lang, account)}
-                    </TableCell>
-                    <TableCell className="space-x-2 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(transaction)}>{t.common.edit}</Button>
-                      <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleDelete(transaction.id)}>
-                        {t.common.delete}
-                      </Button>
+                    <TableCell className="space-x-1 text-right">
+                      <Button variant="ghost" size="sm" onClick={() => openRecurringEdit(entry)}>{t.common.edit}</Button>
+                      <Button variant="ghost" size="sm" className="text-red-400" onClick={() => deleteRecurring(entry.id)}>{t.common.delete}</Button>
                     </TableCell>
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-xl font-semibold">{es ? "Movimientos reales" : "Actual movements"}</h2>
+          <p className="text-sm text-muted-foreground">
+            {es ? "Incluye movimientos manuales y ocurrencias generadas por recurrentes." : "Includes manual movements and occurrences generated by recurring rules."}
+          </p>
+        </div>
+
+        {!loading && transactions.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{t.transactions.noTransactions}</div>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.common.date}</TableHead>
+                  <TableHead>{t.transactions.account}</TableHead>
+                  <TableHead>{t.common.type}</TableHead>
+                  <TableHead>{t.common.description}</TableHead>
+                  <TableHead>{t.common.category}</TableHead>
+                  <TableHead className="text-right">{t.common.amount}</TableHead>
+                  <TableHead className="text-right">{t.common.actions}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transactions.map((transaction) => {
+                  const account = accountMap.get(transaction.account_id);
+                  return (
+                    <TableRow key={transaction.id}>
+                      <TableCell>{formatDate(transaction.date, lang)}</TableCell>
+                      <TableCell>{account?.name ?? t.transactions.unknownAccount}</TableCell>
+                      <TableCell><Badge variant="outline" className={TYPE_COLORS[transaction.type]}>{t.enums[transaction.type]}</Badge></TableCell>
+                      <TableCell className="font-medium">{transaction.description}</TableCell>
+                      <TableCell className="text-muted-foreground">{transaction.category_id ? categoryMap.get(transaction.category_id)?.name : (transaction.category ?? "-")}</TableCell>
+                      <TableCell className={`text-right font-mono ${transaction.type === "income" ? "text-emerald-400" : "text-red-400"}`}>
+                        {transaction.type === "income" ? "+" : "-"}{formatAmount(transaction.amount, lang, account?.currency.symbol)}
+                      </TableCell>
+                      <TableCell className="space-x-1 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => openMovementEdit(transaction)}>{t.common.edit}</Button>
+                        <Button variant="ghost" size="sm" className="text-red-400" onClick={() => deleteMovement(transaction.id)}>{t.common.delete}</Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </section>
+
+      <Dialog open={movementOpen} onOpenChange={setMovementOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editing ? t.transactions.editDialog : t.transactions.addDialog}</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>{editingMovement ? t.transactions.editDialog : t.transactions.addDialog}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>{t.transactions.account}</Label>
-                <Select
-                  value={form.account_id}
-                  onValueChange={(v: string | null) => setForm({ ...form, account_id: v ?? "" })}
-                >
-                  <SelectTrigger className="min-w-0">
-                    <span className="block truncate text-sm">
-                      {accountMap.get(form.account_id)?.name ?? t.transactions.selectAccount}
-                    </span>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>
-                    ))}
-                  </SelectContent>
+                <Select value={movementForm.account_id} onValueChange={(v) => setMovementForm({ ...movementForm, account_id: v ?? "" })}>
+                  <SelectTrigger><span className="truncate text-sm">{accountMap.get(movementForm.account_id)?.name ?? t.transactions.selectAccount}</span></SelectTrigger>
+                  <SelectContent>{accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <Label>{t.common.type}</Label>
-                <Select
-                  value={form.type}
-                  onValueChange={(v: string | null) => setForm({ ...form, type: (v ?? "expense") as TransactionType })}
-                >
-                  <SelectTrigger>
-                    <span className="text-sm">{transactionTypeLabel(form.type)}</span>
-                  </SelectTrigger>
+                <Select value={movementForm.type} onValueChange={(v) => setMovementForm({ ...movementForm, type: (v ?? "expense") as TransactionType, category_id: "" })}>
+                  <SelectTrigger><span className="text-sm">{t.enums[movementForm.type]}</span></SelectTrigger>
+                  <SelectContent><SelectItem value="income">{t.enums.income}</SelectItem><SelectItem value="expense">{t.enums.expense}</SelectItem></SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5"><Label>{t.common.amount}</Label><Input type="number" min="0" step="0.01" value={movementForm.amount || ""} onChange={(e) => setMovementForm({ ...movementForm, amount: Number(e.target.value) })} /></div>
+              <div className="space-y-1.5"><Label>{t.common.date}</Label><Input type="date" value={movementForm.date} onChange={(e) => setMovementForm({ ...movementForm, date: e.target.value })} /></div>
+            </div>
+            <div className="space-y-1.5"><Label>{t.common.description}</Label><Input value={movementForm.description} onChange={(e) => setMovementForm({ ...movementForm, description: e.target.value })} /></div>
+            <div className="space-y-1.5">
+              <Label>{t.common.category}</Label>
+              <Select value={movementForm.category_id} onValueChange={(v) => setMovementForm({ ...movementForm, category_id: v ?? "" })}>
+                <SelectTrigger><span className="truncate text-sm">{movementForm.category_id ? categoryMap.get(movementForm.category_id)?.name : t.common.none}</span></SelectTrigger>
+                <SelectContent><SelectItem value="">{t.common.none}</SelectItem>{categoryOptions(movementForm.type).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter><Button variant="ghost" onClick={() => setMovementOpen(false)}>{t.common.cancel}</Button><Button onClick={saveMovement} disabled={saving || !movementForm.account_id || !movementForm.description || !movementForm.date || movementForm.amount <= 0}>{saving ? t.common.saving : t.common.save}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={recurringOpen} onOpenChange={setRecurringOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingRecurring ? (es ? "Editar recurrente" : "Edit recurring") : (es ? "Agregar recurrente" : "Add recurring")}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>{t.common.type}</Label>
+                <Select value={recurringForm.type} onValueChange={(v) => {
+                  const type = (v ?? "expense") as TransactionType;
+                  const destination = type === "income" && recurringForm.destination.startsWith("credit_card:") ? defaultDestination("income") : recurringForm.destination;
+                  setRecurringForm({ ...recurringForm, type, destination, category_id: "" });
+                }}>
+                  <SelectTrigger><span className="text-sm">{t.enums[recurringForm.type]}</span></SelectTrigger>
+                  <SelectContent><SelectItem value="income">{t.enums.income}</SelectItem><SelectItem value="expense">{t.enums.expense}</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{es ? "Destino" : "Destination"}</Label>
+                <Select value={recurringForm.destination} onValueChange={(v) => setRecurringForm({ ...recurringForm, destination: (v ?? "") as DestinationValue })}>
+                  <SelectTrigger><span className="truncate text-sm">{recurringForm.destination ? (recurringForm.destination.startsWith("account:") ? `${es ? "Cuenta" : "Account"} · ${accountMap.get(recurringForm.destination.slice(8))?.name}` : `${es ? "Tarjeta" : "Card"} · ${cardMap.get(recurringForm.destination.slice(12))?.name}`) : (es ? "Seleccionar destino" : "Select destination")}</span></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="income">{t.enums.income}</SelectItem>
-                    <SelectItem value="expense">{t.enums.expense}</SelectItem>
+                    {accounts.map((account) => <SelectItem key={`account:${account.id}`} value={`account:${account.id}`}>{es ? "Cuenta" : "Account"} · {account.name}</SelectItem>)}
+                    {recurringForm.type === "expense" && cards.map((card) => <SelectItem key={`credit_card:${card.id}`} value={`credit_card:${card.id}`}>{es ? "Tarjeta" : "Card"} · {card.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
             <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5"><Label>{t.common.amount}</Label><Input type="number" min="0" step="0.01" value={recurringForm.amount || ""} onChange={(e) => setRecurringForm({ ...recurringForm, amount: Number(e.target.value) })} /></div>
               <div className="space-y-1.5">
-                <Label htmlFor="amount">{t.common.amount}</Label>
-                <Input
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0"
-                  value={form.amount === 0 ? "" : form.amount}
-                  onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="transaction-date">{t.common.date}</Label>
-                <Input
-                  id="transaction-date"
-                  type="date"
-                  value={form.date}
-                  onChange={(e) => setForm({ ...form, date: e.target.value })}
-                />
+                <Label>{t.transactions.frequency}</Label>
+                <Select value={recurringForm.frequency} onValueChange={(v) => setRecurringForm({ ...recurringForm, frequency: (v ?? "monthly") as RecurrenceRule })}>
+                  <SelectTrigger><span className="text-sm">{t.enums[recurringForm.frequency]}</span></SelectTrigger>
+                  <SelectContent><SelectItem value="weekly">{t.enums.weekly}</SelectItem><SelectItem value="monthly">{t.enums.monthly}</SelectItem><SelectItem value="yearly">{t.enums.yearly}</SelectItem></SelectContent>
+                </Select>
               </div>
             </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="description">{t.common.description}</Label>
-              <Input
-                id="description"
-                placeholder={t.transactions.placeholderDescription}
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-              />
-            </div>
-
+            <div className="space-y-1.5"><Label>{t.common.description}</Label><Input value={recurringForm.description} onChange={(e) => setRecurringForm({ ...recurringForm, description: e.target.value })} /></div>
             <div className="space-y-1.5">
               <Label>{t.common.category}</Label>
-              <Select
-                value={form.category_id}
-                onValueChange={(v: string | null) => setForm({ ...form, category_id: v ?? "" })}
-              >
-                <SelectTrigger>
-                  <span className="block truncate text-sm">
-                    {form.category_id ? categoryMap.get(form.category_id)?.name : t.common.none}
-                  </span>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">{t.common.none}</SelectItem>
-                  {categories.filter((category) => category.type === form.type || category.type === "both").map((category) => (
-                    <SelectItem key={category.id} value={category.id}>
-                      <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: category.color }} />
-                        {category.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+              <Select value={recurringForm.category_id} onValueChange={(v) => setRecurringForm({ ...recurringForm, category_id: v ?? "" })}>
+                <SelectTrigger><span className="truncate text-sm">{recurringForm.category_id ? categoryMap.get(recurringForm.category_id)?.name : t.common.none}</span></SelectTrigger>
+                <SelectContent><SelectItem value="">{t.common.none}</SelectItem>{categoryOptions(recurringForm.type).map((category) => <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-3">
-              <label className="flex h-9 items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.is_recurring}
-                  onChange={(e) => setForm({ ...form, is_recurring: e.target.checked })}
-                />
-                {t.transactions.recurring}
-              </label>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label>{t.transactions.frequency}</Label>
-                  <Select
-                    value={form.recurrence_rule}
-                    onValueChange={(v: string | null) => setForm({ ...form, recurrence_rule: (v ?? "monthly") as RecurrenceRule })}
-                    disabled={!form.is_recurring}
-                  >
-                    <SelectTrigger className="w-full">
-                      <span className="text-sm">{recurrenceLabel(form.recurrence_rule)}</span>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="monthly">{t.enums.monthly}</SelectItem>
-                      <SelectItem value="weekly">{t.enums.weekly}</SelectItem>
-                      <SelectItem value="yearly">{t.enums.yearly}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="end-date">{t.transactions.endDate}</Label>
-                  <Input
-                    id="end-date"
-                    type="date"
-                    value={form.end_date}
-                    onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                    disabled={!form.is_recurring}
-                  />
-                </div>
-              </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5"><Label>{es ? "Fecha de inicio" : "Start date"}</Label><Input type="date" value={recurringForm.start_date} onChange={(e) => setRecurringForm({ ...recurringForm, start_date: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label>{t.transactions.endDate}</Label><Input type="date" value={recurringForm.end_date} onChange={(e) => setRecurringForm({ ...recurringForm, end_date: e.target.value })} /></div>
             </div>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={recurringForm.active} onChange={(e) => setRecurringForm({ ...recurringForm, active: e.target.checked })} />{es ? "Activo" : "Active"}</label>
+            {recurringForm.destination.startsWith("credit_card:") && (
+              <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                {es ? "El gasto se registra en la tarjeta en cada ocurrencia y afecta la cuenta de pago recién al vencimiento del resumen." : "The expense is registered on the card at each occurrence and affects its payment account only on the statement due date."}
+              </p>
+            )}
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)}>{t.common.cancel}</Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving || !form.account_id || !form.description || !form.date || form.amount <= 0}
-            >
-              {saving ? t.common.saving : t.common.save}
-            </Button>
-          </DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setRecurringOpen(false)}>{t.common.cancel}</Button><Button onClick={saveRecurring} disabled={saving || !recurringForm.destination || !recurringForm.description || !recurringForm.start_date || recurringForm.amount <= 0}>{saving ? t.common.saving : t.common.save}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
