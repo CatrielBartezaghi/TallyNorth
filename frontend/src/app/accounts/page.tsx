@@ -26,6 +26,7 @@ interface AccountForm {
   type: AccountType;
   currency_id: string;
   initial_balance: number;
+  target_balance?: number;
 }
 
 const EMPTY_FORM: AccountForm = {
@@ -57,8 +58,6 @@ export default function AccountsPage() {
   const [editing, setEditing] = useState<Account | null>(null);
   const [form, setForm] = useState<AccountForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [adjusting, setAdjusting] = useState<Account | null>(null);
-  const [adjustAmount, setAdjustAmount] = useState(0);
   const { lang, t } = useLanguage();
 
   const load = async (showLoading = true) => {
@@ -91,34 +90,20 @@ export default function AccountsPage() {
       type: account.type,
       currency_id: account.currency_id,
       initial_balance: account.initial_balance,
+      target_balance: account.current_balance,
     });
     setDialogOpen(true);
-  };
-
-  const openAdjust = (account: Account) => {
-    setAdjusting(account);
-    setAdjustAmount(account.current_balance);
-  };
-
-  const handleAdjust = async () => {
-    if (!adjusting) return;
-    setSaving(true);
-    try {
-      await accountsApi.adjustBalance(adjusting.id, adjustAmount);
-      setAdjusting(null);
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.accounts.adjustError);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       if (editing) {
-        await accountsApi.update(editing.id, form);
+        const p1 = accountsApi.update(editing.id, form);
+        const p2 = form.target_balance !== undefined && form.target_balance !== editing.current_balance 
+          ? accountsApi.adjustBalance(editing.id, form.target_balance)
+          : Promise.resolve();
+        await Promise.all([p1, p2]);
       } else {
         await accountsApi.create(form);
       }
@@ -206,7 +191,6 @@ export default function AccountsPage() {
                     {formatAmount(account.current_balance, account.currency, lang)}
                   </TableCell>
                   <TableCell className="space-x-2 text-right">
-                    <Button variant="ghost" size="sm" onClick={() => openAdjust(account)}>{t.accounts.adjustBalance}</Button>
                     <Button variant="ghost" size="sm" onClick={() => openEdit(account)}>{t.common.edit}</Button>
                     <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => handleDelete(account.id)}>
                       {t.common.delete}
@@ -280,18 +264,42 @@ export default function AccountsPage() {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="initial-balance">{(t.accounts as any).initialBalance}</Label>
-              <Input
-                id="initial-balance"
-                type="number"
-                step="0.01"
-                placeholder="0"
-                value={form.initial_balance === 0 ? "" : form.initial_balance}
-                onChange={(e) => setForm({ ...form, initial_balance: parseFloat(e.target.value) || 0 })}
-                disabled={!!editing}
-              />
-            </div>
+            {editing ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5 opacity-60">
+                  <Label htmlFor="initial-balance">{(t.accounts as any).initialBalance}</Label>
+                  <Input
+                    id="initial-balance"
+                    type="number"
+                    step="0.01"
+                    value={form.initial_balance === 0 ? "" : form.initial_balance}
+                    disabled
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="target-balance">{(t.accounts as any).targetBalance}</Label>
+                  <Input
+                    id="target-balance"
+                    type="number"
+                    step="0.01"
+                    value={form.target_balance === undefined ? "" : form.target_balance}
+                    onChange={(e) => setForm({ ...form, target_balance: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="initial-balance">{(t.accounts as any).initialBalance}</Label>
+                <Input
+                  id="initial-balance"
+                  type="number"
+                  step="0.01"
+                  placeholder="0"
+                  value={form.initial_balance === 0 ? "" : form.initial_balance}
+                  onChange={(e) => setForm({ ...form, initial_balance: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDialogOpen(false)}>{t.common.cancel}</Button>
@@ -299,32 +307,6 @@ export default function AccountsPage() {
               onClick={handleSave}
               disabled={saving || !form.name || !form.currency_id}
             >
-              {saving ? t.common.saving : t.common.save}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!adjusting} onOpenChange={(open) => !open && setAdjusting(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.accounts.adjustBalanceDialog}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="target-balance">{t.accounts.targetBalance}</Label>
-              <Input
-                id="target-balance"
-                type="number"
-                step="0.01"
-                value={adjustAmount === 0 ? "" : adjustAmount}
-                onChange={(e) => setAdjustAmount(parseFloat(e.target.value) || 0)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setAdjusting(null)}>{t.common.cancel}</Button>
-            <Button onClick={handleAdjust} disabled={saving}>
               {saving ? t.common.saving : t.common.save}
             </Button>
           </DialogFooter>
