@@ -25,25 +25,26 @@ class CreditCardPurchase(Base):
     category_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
     )
+    recurring_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("recurring_entries.id", ondelete="SET NULL"), nullable=True
+    )
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     total_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
     installments: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     installment_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
-    # The calendar date of the purchase (used to determine which billing period it lands in)
     purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
-    # Date of the FIRST installment (computed by installment_service)
     first_installment_date: Mapped[date] = mapped_column(Date, nullable=False)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    # Relationships
     user: Mapped["User"] = relationship("User")  # noqa: F821
     credit_card: Mapped["CreditCard"] = relationship(  # noqa: F821
         "CreditCard", back_populates="purchases"
     )
     category_ref: Mapped["Category | None"] = relationship("Category")  # noqa: F821
+    recurring_entry: Mapped["RecurringEntry | None"] = relationship("RecurringEntry")  # noqa: F821
     installment_rows: Mapped[list["Installment"]] = relationship(  # noqa: F821
         back_populates="purchase", cascade="all, delete-orphan", order_by="Installment.installment_number"
     )
