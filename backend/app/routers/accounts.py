@@ -18,24 +18,29 @@ def list_accounts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    results = db.query(
-        Account,
-        func.coalesce(func.sum(Transaction.amount), 0).label('tx_sum')
-    ).outerjoin(
-        Transaction, Transaction.account_id == Account.id
-    ).filter(
-        Account.user_id == current_user.id
-    ).group_by(
-        Account.id
-    ).order_by(
-        Account.created_at.desc()
-    ).all()
+    from sqlalchemy import select, case
+    from app.models.installment import Installment
     
-    response = []
-    for account, tx_sum in results:
-        account.current_balance = account.initial_balance + tx_sum
-        response.append(account)
-    return response
+    accounts = db.query(Account).filter(Account.user_id == current_user.id).order_by(Account.created_at.desc()).all()
+    
+    # We can fetch all transactions and installments for this user to compute balances, or use subqueries.
+    # Given typical volume, let's use a query per account or aggregate.
+    
+    for account in accounts:
+        # Sum of transactions
+        tx_sum = db.query(func.coalesce(func.sum(
+            case((Transaction.type == 'income', Transaction.amount), else_=-Transaction.amount)
+        ), 0)).filter(Transaction.account_id == account.id).scalar()
+        
+        # Sum of paid installments
+        inst_sum = db.query(func.coalesce(func.sum(Installment.amount), 0)).filter(
+            Installment.paid_account_id == account.id,
+            Installment.is_paid == True
+        ).scalar()
+        
+        account.current_balance = account.initial_balance + tx_sum - inst_sum
+        
+    return accounts
 
 
 @router.post("/", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
@@ -60,23 +65,27 @@ def get_account(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    result = db.query(
-        Account,
-        func.coalesce(func.sum(Transaction.amount), 0).label('tx_sum')
-    ).outerjoin(
-        Transaction, Transaction.account_id == Account.id
-    ).filter(
+    from sqlalchemy import case
+    from app.models.installment import Installment
+    
+    account = db.query(Account).filter(
         Account.id == account_id,
         Account.user_id == current_user.id
-    ).group_by(
-        Account.id
     ).first()
     
-    if not result:
+    if not account:
         raise HTTPException(status_code=404, detail="Account not found")
         
-    account, tx_sum = result
-    account.current_balance = account.initial_balance + tx_sum
+    tx_sum = db.query(func.coalesce(func.sum(
+        case((Transaction.type == 'income', Transaction.amount), else_=-Transaction.amount)
+    ), 0)).filter(Transaction.account_id == account.id).scalar()
+    
+    inst_sum = db.query(func.coalesce(func.sum(Installment.amount), 0)).filter(
+        Installment.paid_account_id == account.id,
+        Installment.is_paid == True
+    ).scalar()
+    
+    account.current_balance = account.initial_balance + tx_sum - inst_sum
     return account
 
 
