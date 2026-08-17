@@ -212,7 +212,7 @@ export default function DashboardPage() {
             <LineChart data={monthly}>
               <CartesianGrid stroke={chartGrid} vertical={false} />
               <XAxis dataKey="label" stroke={chartText} fontSize={12} tickLine={false} axisLine={false} />
-              <YAxis stroke={chartText} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => compactMoney(Number(v), lang, data.currency)} />
+              <YAxis stroke={chartText} fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => compactMoney(Number(v), lang, data.currency)} domain={[(dataMin: number) => Math.max(dataMin, -3000000), (dataMax: number) => Math.min(dataMax, 3000000)]} allowDataOverflow={true} />
               <Tooltip formatter={(v) => money(Number(v))} contentStyle={{ background: "#020617", border: "1px solid #1f2937" }} />
               <Line type="monotone" dataKey="income" stroke="#22c55e" strokeWidth={2} dot={false} name={t.dashboard.income} />
               <Line type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} dot={false} name={t.dashboard.expenses} />
