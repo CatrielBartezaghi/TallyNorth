@@ -7,6 +7,7 @@ from app.models.currency import Currency  # noqa: F401
 from app.models.category import Category  # noqa: F401
 from app.models.account import Account  # noqa: F401
 from app.models.credit_card import CreditCard  # noqa: F401
+from app.models.recurring_entry import RecurringEntry  # noqa: F401
 from app.models.transaction import Transaction  # noqa: F401
 from app.models.purchase import CreditCardPurchase  # noqa: F401
 from app.models.installment import Installment  # noqa: F401
