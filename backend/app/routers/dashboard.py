@@ -8,7 +8,7 @@ from app.models.user import User
 from app.schemas.dashboard import DashboardSummary
 from app.services.dashboard_service import build_dashboard_summary
 from app.routers.deps import get_current_active_user
-from app.services.transaction_sync_service import sync_recurring_transactions
+from app.services.transaction_sync_service import sync_recurring_transactions, sync_credit_card_installments
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -25,6 +25,7 @@ def get_dashboard_summary(
         raise HTTPException(status_code=400, detail="to must be after from")
     
     sync_recurring_transactions(db, current_user.id)
+    sync_credit_card_installments(db, current_user.id)
     
     try:
         return build_dashboard_summary(db, date_from=date_from, date_to=date_to, currency_code=currency.upper(), user_id=current_user.id)
