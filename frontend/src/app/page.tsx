@@ -59,8 +59,11 @@ function isoDate(value: Date) {
 }
 
 function defaultRange() {
+  const from = new Date();
+  from.setDate(1);
+  from.setMonth(from.getMonth() - 5);
   const to = new Date();
-  const from = new Date(to.getFullYear(), to.getMonth() - 5, 1);
+  to.setMonth(to.getMonth() + 6);
   return { from: isoDate(from), to: isoDate(to) };
 }
 
@@ -203,7 +206,7 @@ export default function DashboardPage() {
         <KpiCard title={t.dashboard.wealth} icon={<Landmark size={22} />} value={data.kpis.wealth.value} change={data.kpis.wealth.change_pct} tone="cyan" lang={lang} t={t} currency={data.currency} />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.35fr_0.85fr_0.9fr]">
+      <div className="grid grid-cols-1 gap-3">
         <Panel title={t.dashboard.monthlyFlow} className="min-h-[270px]">
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={monthly}>
@@ -217,7 +220,9 @@ export default function DashboardPage() {
             </LineChart>
           </ResponsiveContainer>
         </Panel>
+      </div>
 
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr]">
         <Panel title={t.dashboard.expensesByCategory} className="min-h-[270px]">
           {data.expenses_by_category.length === 0 ? (
             <EmptyState text={t.dashboard.noExpensesInPeriod} />
@@ -261,16 +266,6 @@ export default function DashboardPage() {
             ))}
           </div>
         </Panel>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.1fr_0.95fr_1.05fr]">
-        <Panel title={t.dashboard.installmentsDue}>
-          <TableLike rows={data.upcoming_installments.slice(0, 5).map((item) => [
-            `${item.description} (${item.current_installment}/${item.total_installments})`,
-            item.due_date,
-            money(item.converted_amount),
-          ])} empty={t.dashboard.noInstallments} />
-        </Panel>
 
         <Panel title={t.dashboard.investmentPerformance}>
           <div className="mb-3 h-16">
@@ -285,14 +280,6 @@ export default function DashboardPage() {
             money(item.converted_current_value),
             `${formatFixed(item.return_pct, 1)}%`,
           ])} empty={t.dashboard.noInvestments} />
-        </Panel>
-
-        <Panel title={t.dashboard.recentMovements}>
-          <TableLike rows={data.recent_movements.slice(0, 7).map((item) => [
-            item.description,
-            item.category ?? "-",
-            `${item.type === "income" ? "+" : "-"}${money(item.converted_amount)}`,
-          ])} empty={t.dashboard.noMovements} />
         </Panel>
       </div>
 

@@ -186,6 +186,24 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
                 key = f"{installment.due_date.year:04d}-{installment.due_date.month:02d}"
                 monthly_map[key]["expenses"] += converted
 
+    today_month_start = _month_start(date.today())
+    recurring_txs = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.account))
+        .filter(Transaction.user_id == user_id, Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly")  # noqa: E712
+        .all()
+    )
+    for key in monthly_map:
+        year, month = map(int, key.split("-"))
+        month_start = date(year, month, 1)
+        month_end = _month_end(month_start)
+        if month_start > today_month_start:
+            for t in recurring_txs:
+                if t.date <= month_end and (t.end_date is None or t.end_date >= month_start):
+                    converted = converter.convert(t.amount, t.account.currency)
+                    if converted is not None:
+                        monthly_map[key]["income" if t.type == "income" else "expenses"] += converted
+
     expenses_by_category: defaultdict[str, Decimal] = defaultdict(Decimal)
     category_colors: dict[str, str] = {}
     for tx in transactions:
