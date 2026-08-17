@@ -21,10 +21,6 @@ def upgrade() -> None:
     recurring_frequency = sa.Enum("weekly", "monthly", "yearly", name="recurring_frequency_enum")
     recurring_destination = sa.Enum("account", "credit_card", name="recurring_destination_type_enum")
 
-    recurring_type.create(op.get_bind(), checkfirst=True)
-    recurring_frequency.create(op.get_bind(), checkfirst=True)
-    recurring_destination.create(op.get_bind(), checkfirst=True)
-
     op.create_table(
         "recurring_entries",
         sa.Column("id", sa.UUID(), nullable=False),
