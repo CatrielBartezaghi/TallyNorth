@@ -11,6 +11,7 @@ from app.routers import (
     budgets,
     cashflow,
     categories,
+    chatgpt_account_actions,
     chatgpt_actions,
     credit_cards,
     currencies,
@@ -81,6 +82,7 @@ API_PREFIX = f"{route_base}/v1"
 app.include_router(accounts.router, prefix=API_PREFIX)
 app.include_router(assistant.router, prefix=API_PREFIX)
 app.include_router(chatgpt_actions.router, prefix=API_PREFIX)
+app.include_router(chatgpt_account_actions.router, prefix=API_PREFIX)
 app.include_router(integration_tokens.router, prefix=API_PREFIX)
 app.include_router(categories.router, prefix=API_PREFIX)
 app.include_router(credit_cards.router, prefix=API_PREFIX)
