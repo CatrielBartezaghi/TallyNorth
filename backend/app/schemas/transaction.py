@@ -10,6 +10,8 @@ TransactionType = Literal["income", "expense"]
 
 
 class TransactionBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     account_id: uuid.UUID
     category_id: uuid.UUID | None = None
     type: TransactionType
@@ -24,6 +26,8 @@ class TransactionCreate(TransactionBase):
 
 
 class TransactionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     account_id: uuid.UUID | None = None
     category_id: uuid.UUID | None = None
     type: TransactionType | None = None
