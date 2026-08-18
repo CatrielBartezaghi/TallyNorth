@@ -1,6 +1,5 @@
 import uuid
-from datetime import datetime
-from datetime import date as DateType
+from datetime import date as DateType, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -8,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 TransactionType = Literal["income", "expense"]
-RecurrenceRule = Literal["monthly", "weekly", "yearly"]
 
 
 class TransactionBase(BaseModel):
@@ -19,9 +17,6 @@ class TransactionBase(BaseModel):
     description: str
     category: str | None = None
     date: DateType
-    is_recurring: bool = False
-    recurrence_rule: RecurrenceRule | None = None
-    end_date: DateType | None = None
 
 
 class TransactionCreate(TransactionBase):
@@ -36,13 +31,11 @@ class TransactionUpdate(BaseModel):
     description: str | None = None
     category: str | None = None
     date: DateType | None = None
-    is_recurring: bool | None = None
-    recurrence_rule: RecurrenceRule | None = None
-    end_date: DateType | None = None
 
 
 class TransactionRead(TransactionBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    recurring_entry_id: uuid.UUID | None = None
     created_at: datetime
