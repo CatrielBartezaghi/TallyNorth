@@ -4,7 +4,6 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.account import Account
@@ -14,6 +13,7 @@ from app.models.currency import Currency
 from app.models.installment import Installment
 from app.models.investment import Investment
 from app.models.purchase import CreditCardPurchase
+from app.models.recurring_entry import RecurringEntry
 from app.models.saving_goal import SavingGoal
 from app.models.transaction import Transaction
 from app.schemas.integration import (
@@ -26,6 +26,11 @@ from app.schemas.integration import (
     FinanceEntryKind,
 )
 from app.services.dashboard_service import Converter
+from app.services.recurring_entry_service import (
+    occurrence_dates_between,
+    projected_card_due_date,
+    sync_recurring_entries,
+)
 
 
 MONEY = Decimal("0.01")
@@ -104,6 +109,7 @@ def search_chatgpt_finance_entries(
     limit: int,
     offset: int,
 ) -> ChatGPTFinanceEntrySearchResult:
+    sync_recurring_entries(db, user_id)
     fetch_count = offset + limit + 1
     merged: list[tuple[date, object, str, ChatGPTFinanceEntryRead]] = []
 
@@ -172,6 +178,7 @@ def search_chatgpt_finance_entries(
                         ),
                         account_id=transaction.account_id,
                         account_name=transaction.account.name,
+                        recurring_entry_id=transaction.recurring_entry_id,
                     ),
                 )
             )
@@ -253,6 +260,7 @@ def search_chatgpt_finance_entries(
                         credit_card_name=purchase.credit_card.name,
                         installments=purchase.installments,
                         installment_amount=_decimal(purchase.installment_amount),
+                        recurring_entry_id=purchase.recurring_entry_id,
                     ),
                 )
             )
@@ -336,43 +344,6 @@ def _month_end(value: date) -> date:
     return date(value.year, value.month, calendar.monthrange(value.year, value.month)[1])
 
 
-def _advance_recurrence(value: date, rule: str | None) -> date | None:
-    if rule == "weekly":
-        return value + timedelta(weeks=1)
-    if rule == "monthly":
-        return value + relativedelta(months=1)
-    if rule == "yearly":
-        return value + relativedelta(years=1)
-    return None
-
-
-def _occurrences(transaction: Transaction, window_start: date, window_end: date):
-    if not transaction.is_recurring:
-        if window_start <= transaction.date <= window_end:
-            yield transaction.date
-        return
-
-    occurrence = transaction.date
-    final_date = min(window_end, transaction.end_date or window_end)
-    while occurrence < window_start:
-        next_occurrence = _advance_recurrence(
-            occurrence,
-            transaction.recurrence_rule,
-        )
-        if next_occurrence is None:
-            return
-        occurrence = next_occurrence
-    while occurrence <= final_date:
-        yield occurrence
-        next_occurrence = _advance_recurrence(
-            occurrence,
-            transaction.recurrence_rule,
-        )
-        if next_occurrence is None:
-            return
-        occurrence = next_occurrence
-
-
 def build_chatgpt_cashflow_projection(
     db: Session,
     user_id,
@@ -381,6 +352,7 @@ def build_chatgpt_cashflow_projection(
     months: int,
     current_date: date,
 ) -> ChatGPTCashflowProjection:
+    sync_recurring_entries(db, user_id)
     window_start = _month_start(current_date)
     final_month = window_start + relativedelta(months=months - 1)
     window_end = _month_end(final_month)
@@ -401,20 +373,8 @@ def build_chatgpt_cashflow_projection(
         .options(joinedload(Transaction.account).joinedload(Account.currency))
         .filter(
             Transaction.user_id == user_id,
+            Transaction.date >= window_start,
             Transaction.date <= window_end,
-            or_(
-                and_(
-                    Transaction.is_recurring.is_(False),
-                    Transaction.date >= window_start,
-                ),
-                and_(
-                    Transaction.is_recurring.is_(True),
-                    or_(
-                        Transaction.end_date.is_(None),
-                        Transaction.end_date >= window_start,
-                    ),
-                ),
-            ),
         )
         .all()
     )
@@ -422,10 +382,9 @@ def build_chatgpt_cashflow_projection(
         converted = converter.convert(transaction.amount, transaction.account.currency)
         if converted is None:
             continue
-        for occurrence in _occurrences(transaction, window_start, window_end):
-            key = f"{occurrence.year:04d}-{occurrence.month:02d}"
-            bucket = "income" if transaction.type == "income" else "expenses"
-            month_map[key][bucket] += converted
+        key = f"{transaction.date.year:04d}-{transaction.date.month:02d}"
+        bucket = "income" if transaction.type == "income" else "expenses"
+        month_map[key][bucket] += converted
 
     installments = (
         db.query(Installment)
@@ -449,6 +408,39 @@ def build_chatgpt_cashflow_projection(
             continue
         key = f"{installment.due_date.year:04d}-{installment.due_date.month:02d}"
         month_map[key]["installments"] += converted
+
+    future_from = max(window_start, current_date + timedelta(days=1))
+    if future_from <= window_end:
+        recurring_entries = (
+            db.query(RecurringEntry)
+            .options(
+                joinedload(RecurringEntry.account).joinedload(Account.currency),
+                joinedload(RecurringEntry.credit_card).joinedload(CreditCard.currency),
+            )
+            .filter(
+                RecurringEntry.user_id == user_id,
+                RecurringEntry.active.is_(True),
+            )
+            .all()
+        )
+        for entry in recurring_entries:
+            for occurrence_date in occurrence_dates_between(entry, future_from, window_end):
+                if entry.destination_type == "account":
+                    converted = converter.convert(entry.amount, entry.account.currency)
+                    if converted is None:
+                        continue
+                    key = f"{occurrence_date.year:04d}-{occurrence_date.month:02d}"
+                    bucket = "income" if entry.type == "income" else "expenses"
+                    month_map[key][bucket] += converted
+                else:
+                    due_date = projected_card_due_date(entry, occurrence_date)
+                    if not (window_start <= due_date <= window_end):
+                        continue
+                    converted = converter.convert(entry.amount, entry.credit_card.currency)
+                    if converted is None:
+                        continue
+                    key = f"{due_date.year:04d}-{due_date.month:02d}"
+                    month_map[key]["installments"] += converted
 
     result_months = []
     for month, values in month_map.items():
