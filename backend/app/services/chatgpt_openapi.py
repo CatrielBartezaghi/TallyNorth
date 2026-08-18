@@ -17,6 +17,7 @@ ALLOWED_OPERATION_IDS = {
     "createCreditCardPurchase",
     "createFinanceEntriesBatch",
     "setAccountBalance",
+    "createCategory",
 }
 
 
@@ -109,10 +110,10 @@ def build_chatgpt_action_openapi(
         "info": {
             "title": "TallyNorth GPT Actions",
             "description": (
-                "Consulta finanzas y registra movimientos, compras y ajustes "
-                "de saldo confirmados para el usuario autenticado."
+                "Consulta finanzas y registra movimientos, compras, categorías y "
+                "ajustes de saldo confirmados para el usuario autenticado."
             ),
-            "version": "1.2.0",
+            "version": "1.3.0",
         },
         "servers": [{"url": server_url.rstrip("/")}],
         "security": [{"bearerAuth": []}],
