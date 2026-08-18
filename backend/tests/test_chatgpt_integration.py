@@ -51,6 +51,7 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
             "/integrations/chatgpt/purchases",
             "/integrations/chatgpt/entries/batch",
             "/integrations/chatgpt/account-balances",
+            "/integrations/chatgpt/categories",
         }
         self.assertEqual(set(schema["paths"]), expected_paths)
 
@@ -78,6 +79,7 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
                 "createCreditCardPurchase",
                 "createFinanceEntriesBatch",
                 "setAccountBalance",
+                "createCategory",
             },
         )
 
