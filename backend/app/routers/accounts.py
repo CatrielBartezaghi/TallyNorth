@@ -140,8 +140,7 @@ def adjust_balance(
             type="income" if diff > 0 else "expense",
             amount=abs(diff),
             description="Balance Adjustment",
-            date=date.today(),
-            is_recurring=False
+            date=date.today()
         )
         db.add(tx)
         db.commit()
