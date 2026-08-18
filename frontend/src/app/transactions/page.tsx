@@ -307,9 +307,6 @@ export default function TransactionsPage() {
           category_id: movementForm.category_id || null,
           category: selectedCategory?.name ?? null,
           date: movementForm.date,
-          is_recurring: false,
-          recurrence_rule: null,
-          end_date: null,
         };
         if (editingMovement) await transactionsApi.update(editingMovement.item.id, payload);
         else await transactionsApi.create(payload);
