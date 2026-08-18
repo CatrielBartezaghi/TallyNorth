@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -37,6 +37,7 @@ class PurchaseRead(PurchaseBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    recurring_entry_id: uuid.UUID | None = None
     installment_amount: Decimal
     first_installment_date: date
     created_at: datetime
