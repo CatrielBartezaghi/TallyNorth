@@ -5,12 +5,13 @@ export function proxy(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
   const pathname = request.nextUrl.pathname;
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
+  const isPublicPage = isAuthPage || pathname === "/privacy" || pathname.startsWith("/privacy/");
 
   if (pathname.startsWith("/auth/")) {
     return NextResponse.next();
   }
 
-  if (!token && !isAuthPage) {
+  if (!token && !isPublicPage) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(loginUrl);
