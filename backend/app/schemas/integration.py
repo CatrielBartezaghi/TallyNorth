@@ -123,7 +123,7 @@ class ChatGPTFinanceContext(BaseModel):
 
 
 class ChatGPTTransactionCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     idempotency_key: str = Field(
         min_length=8,
@@ -143,7 +143,7 @@ class ChatGPTTransactionCreate(BaseModel):
 
 
 class ChatGPTRecurringEntryCreate(RecurringEntryBase):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     idempotency_key: str = Field(
         min_length=8,
@@ -272,7 +272,7 @@ class ChatGPTInstallmentSearchResult(BaseModel):
 
 
 class ChatGPTBatchTransactionCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     kind: Literal["transaction"]
     account_id: uuid.UUID
