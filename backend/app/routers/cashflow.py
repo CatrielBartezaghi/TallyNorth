@@ -9,18 +9,17 @@ from app.database import get_db
 from app.models.credit_card import CreditCard
 from app.models.installment import Installment
 from app.models.user import User
+from app.routers.deps import get_current_active_user
 from app.schemas.cashflow import DashboardSummary, MonthlyProjection
 from app.services import cashflow_service
-from app.routers.deps import get_current_active_user
 from app.services.recurring_entry_service import sync_recurring_entries
-from app.services.transaction_sync_service import sync_credit_card_installments, sync_recurring_transactions
+from app.services.transaction_sync_service import sync_credit_card_installments
 
 router = APIRouter(prefix="/cashflow", tags=["Cashflow"])
 
 
 def _sync_financial_state(db: Session, user_id) -> None:
     sync_recurring_entries(db, user_id)
-    sync_recurring_transactions(db, user_id)
     sync_credit_card_installments(db, user_id)
 
 
@@ -33,7 +32,12 @@ def get_projection(
     _sync_financial_state(db, current_user.id)
     today = date.today()
     start = date(today.year, today.month, 1)
-    raw = cashflow_service.get_monthly_projection(db, start_date=start, num_months=months, user_id=current_user.id)
+    raw = cashflow_service.get_monthly_projection(
+        db,
+        start_date=start,
+        num_months=months,
+        user_id=current_user.id,
+    )
     return [MonthlyProjection(**row) for row in raw]
 
 
@@ -50,7 +54,12 @@ def get_month_summary(
     else:
         year, m = today.year, today.month
 
-    raw = cashflow_service.get_month_summary(db, year=year, month=m, user_id=current_user.id)
+    raw = cashflow_service.get_month_summary(
+        db,
+        year=year,
+        month=m,
+        user_id=current_user.id,
+    )
     return MonthlyProjection(**raw)
 
 
@@ -64,10 +73,18 @@ def get_dashboard(
     today = date.today()
     current_month_str = f"{today.year:04d}-{today.month:02d}"
 
-    summary_raw = cashflow_service.get_month_summary(db, year=today.year, month=today.month, user_id=current_user.id)
+    summary_raw = cashflow_service.get_month_summary(
+        db,
+        year=today.year,
+        month=today.month,
+        user_id=current_user.id,
+    )
     start = date(today.year, today.month, 1)
     projection_raw = cashflow_service.get_monthly_projection(
-        db, start_date=start, num_months=projection_months, user_id=current_user.id
+        db,
+        start_date=start,
+        num_months=projection_months,
+        user_id=current_user.id,
     )
     projection = [MonthlyProjection(**row) for row in projection_raw]
 
@@ -76,7 +93,7 @@ def get_dashboard(
         .filter(
             Installment.user_id == current_user.id,
             Installment.due_date >= today,
-            Installment.is_paid == False,  # noqa: E712
+            Installment.is_paid.is_(False),
         )
         .order_by(Installment.due_date)
         .limit(50)
