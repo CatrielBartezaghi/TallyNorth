@@ -11,6 +11,7 @@ from app.models.currency import Currency
 from app.models.installment import Installment
 from app.models.investment import Investment
 from app.models.purchase import CreditCardPurchase
+from app.models.recurring_entry import RecurringEntry
 from app.models.saving_goal import SavingGoal
 from app.models.transaction import Transaction
 from app.schemas.integration import (
@@ -23,6 +24,7 @@ from app.schemas.integration import (
     ChatGPTInvestmentCreate,
     ChatGPTInvestmentValueUpdate,
     ChatGPTPurchaseCreate,
+    ChatGPTRecurringEntryCreate,
     ChatGPTSavingGoalCreate,
     ChatGPTSavingGoalProgressUpdate,
     ChatGPTTransactionCreate,
@@ -124,13 +126,56 @@ def create_chatgpt_transaction(
         description=payload.description,
         category=category.name if category else None,
         date=payload.date,
-        is_recurring=payload.is_recurring,
-        recurrence_rule=payload.recurrence_rule,
-        end_date=payload.end_date,
     )
     db.add(transaction)
     db.flush()
     return transaction
+
+
+def create_chatgpt_recurring_entry(
+    db: Session,
+    user_id,
+    payload: ChatGPTRecurringEntryCreate,
+) -> RecurringEntry:
+    if payload.destination_type == "account":
+        account = (
+            db.query(Account)
+            .filter(Account.id == payload.account_id, Account.user_id == user_id)
+            .first()
+        )
+        if account is None:
+            raise OwnedResourceNotFoundError(
+                "Account not found for the authenticated user"
+            )
+    else:
+        card = (
+            db.query(CreditCard)
+            .filter(
+                CreditCard.id == payload.credit_card_id,
+                CreditCard.user_id == user_id,
+            )
+            .first()
+        )
+        if card is None:
+            raise OwnedResourceNotFoundError(
+                "Credit card not found for the authenticated user"
+            )
+
+    category = _get_owned_category(
+        db,
+        user_id,
+        payload.category_id,
+        payload.type,
+    )
+
+    entry = RecurringEntry(
+        user_id=user_id,
+        category=category.name if category else None,
+        **payload.model_dump(exclude={"idempotency_key"}),
+    )
+    db.add(entry)
+    db.flush()
+    return entry
 
 
 def create_chatgpt_purchase(

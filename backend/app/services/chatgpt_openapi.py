@@ -4,16 +4,16 @@ from copy import deepcopy
 ACTION_ROOT = "/integrations/chatgpt"
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
-# Keep the Custom GPT surface intentionally small. Other integration endpoints may
-# remain available internally without being advertised to the GPT.
 ALLOWED_OPERATION_IDS = {
     "getFinanceContext",
     "getFinancialSummary",
     "getCashflowProjection",
     "searchFinanceEntries",
     "getUpcomingInstallments",
+    "listRecurringEntries",
     "getAccountBalances",
     "createTransaction",
+    "createRecurringEntry",
     "createCreditCardPurchase",
     "createFinanceEntriesBatch",
     "setAccountBalance",
@@ -110,10 +110,10 @@ def build_chatgpt_action_openapi(
         "info": {
             "title": "TallyNorth GPT Actions",
             "description": (
-                "Consulta finanzas y registra movimientos, compras, categorías y "
-                "ajustes de saldo confirmados para el usuario autenticado."
+                "Consulta finanzas y registra movimientos, recurrentes, compras, "
+                "categorías y ajustes de saldo confirmados para el usuario autenticado."
             ),
-            "version": "1.3.0",
+            "version": "2.0.0",
         },
         "servers": [{"url": server_url.rstrip("/")}],
         "security": [{"bearerAuth": []}],

@@ -12,6 +12,8 @@ RecurringEntryType = Literal["income", "expense"]
 
 
 class RecurringEntryBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: RecurringEntryType
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     description: str = Field(min_length=1, max_length=255)
@@ -46,6 +48,8 @@ class RecurringEntryCreate(RecurringEntryBase):
 
 
 class RecurringEntryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: RecurringEntryType | None = None
     amount: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=2)
     description: str | None = Field(default=None, min_length=1, max_length=255)

@@ -3,13 +3,14 @@
 > [!IMPORTANT]
 > TallyNorth includes JWT authentication and user-scoped financial data. Before exposing an instance publicly, configure a strong `JWT_SECRET_KEY`, HTTPS, restricted CORS origins, production database credentials, and backups. The project has not been security-audited.
 
-Full-stack personal finance platform for tracking day-to-day finances and turning them into useful projections and analytics. It supports accounts, transactions, credit cards and installments, budgets, saving goals, investments, multiple currencies, and market exchange rates.
+Full-stack personal finance platform for tracking day-to-day finances and turning them into useful projections and analytics. It supports accounts, transactions, recurring entries, credit cards and installments, budgets, saving goals, investments, multiple currencies, and market exchange rates.
 
 ## Features
 
 - Email/password registration and JWT sessions stored in an `HttpOnly` cookie.
 - Per-user isolation across financial resources.
-- Accounts, income and expense transactions, custom categories, and recurring transactions.
+- Accounts, income and expense transactions, and custom categories.
+- Unified recurring rules through `RecurringEntry` for account movements and credit-card expenses.
 - Credit cards with closing/due dates and automatic installment generation.
 - Individual and bulk credit-card purchase creation and installment payment tracking.
 - Monthly cash-flow projections, budgets, saving goals, and investments.
@@ -18,6 +19,9 @@ Full-stack personal finance platform for tracking day-to-day finances and turnin
 - Dashboard in USD or ARS with KPIs and interactive charts.
 - Spanish and English interface with a persistent language preference.
 - Responsive dark UI.
+- Private ChatGPT Actions integration with scoped, revocable tokens.
+
+A transaction is always a materialized movement. Recurrence configuration lives only in `recurring_entries`; generated transactions and purchases reference their originating rule through `recurring_entry_id`.
 
 The dashboard consolidates income, expenses, net savings, wealth, account balances, upcoming installments, investments, budget usage, and saving-goal progress. When a direct exchange rate is unavailable, the backend can use an inverse rate or a cross-rate through ARS.
 
@@ -44,7 +48,7 @@ FastAPI / Pydantic
         | authentication + REST resources
         v
 Domain services
-        | installments, cash flow, dashboard, exchange rates
+        | recurring entries, installments, cash flow, dashboard, exchange rates
         v
 SQLAlchemy / PostgreSQL ----> Yahoo Finance
 ```
@@ -53,26 +57,18 @@ SQLAlchemy / PostgreSQL ----> Yahoo Finance
 
 ## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) 4.x or newer.
+- Docker Desktop 4.x or newer.
 - Node.js 20+, Python 3.12+, and PostgreSQL 16 for development without Docker.
-
----
 
 ## Quick Start (Docker)
 
 ```bash
-# 1. Clone the repository
 git clone <repo-url>
-cd finance-tracker
-
-# 2. Create and edit the backend environment file
+cd TallyNorth
 cp backend/.env.example backend/.env
 # Set a long random JWT_SECRET_KEY in backend/.env
 
-# 3. Build and start all services
 docker compose up --build
-
-# 4. Apply all database migrations
 docker compose exec backend alembic upgrade head
 ```
 
@@ -96,31 +92,18 @@ Demo credentials: `demo@finance.com` / `demo123`.
 > [!WARNING]
 > The demo credentials are public and intended only for local/demo environments.
 
----
-
-## Local Development (without Docker)
+## Local Development
 
 ### Backend
 
 ```bash
 cd backend
-
-# Create and activate virtual environment
 python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
-
-# Install dependencies
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-
-# Copy and configure env
 cp .env.example .env
-# Set DATABASE_URL and JWT_SECRET_KEY in .env
-
-# Run migrations
 alembic upgrade head
-
-# Start dev server (hot reload)
 uvicorn app.main:app --reload
 ```
 
@@ -128,7 +111,6 @@ uvicorn app.main:app --reload
 
 ```bash
 cd frontend
-
 npm install
 npm run dev
 ```
@@ -141,8 +123,6 @@ SERVER_API_URL=http://localhost:8000
 ```
 
 `SERVER_API_URL` is used by Next.js authentication route handlers. `NEXT_PUBLIC_API_URL` is used by browser-side API requests.
-
----
 
 ## Environment variables
 
@@ -169,47 +149,46 @@ SERVER_API_URL=http://localhost:8000
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend URL used in the browser |
 | `SERVER_API_URL` | Falls back to the public URL | Backend URL used by Next.js route handlers |
 
-## Database Migrations
+## Database migrations
 
 ```bash
-# Inside the backend directory (or via Docker exec)
-alembic upgrade head          # Apply all pending migrations
-alembic downgrade -1          # Roll back one migration
-alembic revision --autogenerate -m "your message"   # Generate new migration
+cd backend
+alembic upgrade head
+alembic downgrade -1
+alembic revision --autogenerate -m "your message"
 ```
 
----
+The current recurrence model uses `recurring_entries`. Legacy recurrence columns on `transactions` are removed by migration; new code must not add transaction-level recurrence flags back.
 
-## Project Structure
+## Project structure
 
-```
-finance-tracker/
+```text
+TallyNorth/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py         # FastAPI app, CORS, lifecycle, and routers
-│   │   ├── config.py       # Environment-based settings
-│   │   ├── database.py     # SQLAlchemy engine and sessions
-│   │   ├── models/         # SQLAlchemy domain models
-│   │   ├── schemas/        # Pydantic API contracts
-│   │   ├── routers/        # Authentication and REST endpoints
-│   │   └── services/       # Financial rules and integrations
-│   ├── alembic/            # Database migrations
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── routers/
+│   │   └── services/
+│   ├── alembic/
 │   ├── scripts/seed_demo.py
-│   └── Dockerfile
+│   └── tests/
 ├── frontend/
 │   ├── src/
-│   │   ├── app/            # Pages and auth route handlers
-│   │   ├── components/     # Navigation and reusable UI
-│   │   └── lib/            # API client, auth, and i18n
+│   │   ├── app/
+│   │   ├── components/
+│   │   ├── lib/
+│   │   └── proxy.ts
 │   └── Dockerfile
 ├── docker-compose.yml
 ├── vercel.json
 └── README.md
 ```
 
----
-
-## API Overview
+## API overview
 
 Financial endpoints require an authenticated user. In local development, the main API prefix is `/api/v1` and authentication is under `/api/auth`.
 
@@ -218,11 +197,12 @@ Financial endpoints require an authenticated user. In local development, the mai
 | Authentication | Register, login, logout, and current-user endpoints under `/api/auth` |
 | Accounts | `GET/POST /api/v1/accounts/` - `GET/PUT/DELETE /api/v1/accounts/{id}` |
 | Categories | CRUD under `/api/v1/categories` |
-| Credit Cards | `GET/POST /api/v1/credit-cards/` - `GET/PUT/DELETE /api/v1/credit-cards/{id}` - `GET /api/v1/credit-cards/{id}/installments` |
+| Credit Cards | `GET/POST /api/v1/credit-cards/` - `GET/PUT/DELETE /api/v1/credit-cards/{id}` - installments lookup |
 | Transactions | `GET/POST /api/v1/transactions/` - `GET/PUT/DELETE /api/v1/transactions/{id}` |
+| Recurring entries | `GET/POST /api/v1/recurring-entries/` - `PUT/DELETE /api/v1/recurring-entries/{id}` |
 | Purchases | CRUD and bulk creation under `/api/v1/purchases` |
 | Installments | Update payment state under `/api/v1/installments/{id}` |
-| Cashflow | `GET /api/v1/cashflow/projection` - `GET /api/v1/cashflow/summary` - `GET /api/v1/cashflow/dashboard` |
+| Cashflow | Projection, summary, and dashboard under `/api/v1/cashflow` |
 | Budgets | CRUD under `/api/v1/budgets` |
 | Saving goals | CRUD under `/api/v1/saving-goals` |
 | Investments | CRUD under `/api/v1/investments` |
@@ -230,38 +210,35 @@ Financial endpoints require an authenticated user. In local development, the mai
 | Exchange rates | CRUD, quote lookup, and market sync under `/api/v1/exchange-rates` |
 | Dashboard | Consolidated summary under `/api/v1/dashboard/summary` |
 | Integration tokens | Issue, list, and revoke scoped tokens under `/api/v1/integration-tokens` |
-| ChatGPT Actions | Curated read and confirmed-write endpoints under `/api/v1/integrations/chatgpt` |
+| ChatGPT Actions | Curated endpoints under `/api/v1/integrations/chatgpt` |
 
-Full interactive docs at **http://localhost:8000/docs**.
+Full interactive docs are available at **http://localhost:8000/docs**.
 
----
+## ChatGPT Actions
 
-## ChatGPT GPT Actions
+TallyNorth can be connected to a private Custom GPT using a dedicated, revocable Bearer token and a curated OpenAPI schema.
 
-TallyNorth can be connected to a private Custom GPT using a dedicated, revocable
-Bearer token and a curated OpenAPI schema. The integration exposes context and
-summary queries, cashflow projections, movement searches, installments,
-transaction and purchase creation, atomic batch entry, budgets, saving goals,
-investments, and installment payments. Destructive operations and configuration
-administration remain outside the GPT surface.
+The GPT surface currently exposes:
 
-See [backend/CHATGPT_ACTIONS.md](backend/CHATGPT_ACTIONS.md) for deployment,
-token issuance, the exact GPT configuration, and copy-ready GPT instructions.
+- context, summary, cashflow, movement, installment, recurring-rule, and account-balance queries;
+- one-off transaction creation;
+- recurring-entry creation;
+- credit-card purchase creation;
+- atomic batch creation for one-off movements and purchases;
+- account-balance reconciliation;
+- category creation.
 
----
+Recurring rules are created with `createRecurringEntry`, never by adding recurrence fields to `createTransaction`.
 
-## Credit Card Installment Logic
+See [backend/CHATGPT_ACTIONS.md](backend/CHATGPT_ACTIONS.md) for the exact contract and GPT instructions.
 
-The installment service follows the standard Argentine convention:
+## Credit-card installment logic
 
-- If `purchase_date.day <= closing_day` -> first installment due on `due_day` of the **same** month.
-- If `purchase_date.day > closing_day` -> first installment due on `due_day` of the **next** month.
-
-Subsequent installments advance one calendar month each.
-
-If a due day does not exist in a shorter month, it is clamped to that month's final day. Amounts use decimal arithmetic and `ROUND_HALF_UP` to two decimal places.
-
----
+- If `purchase_date.day <= closing_day`, the first installment is due on `due_day` of the same month.
+- If `purchase_date.day > closing_day`, the first installment is due on `due_day` of the next month.
+- Subsequent installments advance one calendar month.
+- Missing due days in shorter months are clamped to the month's final day.
+- Amounts use decimal arithmetic and `ROUND_HALF_UP` to two decimal places.
 
 ## Exchange-rate synchronization
 
@@ -275,8 +252,14 @@ Synchronization updates an existing record for the currency pair and date instea
 - Login returns a signed JWT with a seven-day expiration.
 - The backend accepts the token from a Bearer header or the `token` cookie.
 - Next.js stores browser sessions in an `HttpOnly`, `SameSite=Lax` cookie.
-- Protected routes redirect unauthenticated users to login.
+- Protected routes are handled by the Next.js 16 `proxy.ts` convention.
 - Backend queries scope financial resources to the authenticated user.
+
+## Tests and deployment
+
+Backend tests live under `backend/tests/`. Database integration tests that mutate data require an explicitly configured disposable database. Vercel preview deployments compile both the Next.js frontend and Python backend for branch validation.
+
+There is currently no repository-level CI workflow that automatically runs the full backend test suite on every push.
 
 ## Production considerations
 
@@ -284,7 +267,7 @@ Before storing real financial data on a public server:
 
 - use a long random `JWT_SECRET_KEY` and HTTPS;
 - configure a precise `FRONTEND_URL` and keep `ALLOW_ALL_ORIGINS=False`;
-- replace the default PostgreSQL and pgAdmin credentials;
+- replace default PostgreSQL and pgAdmin credentials;
 - do not expose PostgreSQL or pgAdmin publicly;
 - use encrypted storage and automated backups;
 - add rate limiting, monitoring, and security scanning;
@@ -293,7 +276,7 @@ Before storing real financial data on a public server:
 
 ## Current limitations
 
-- No automated test suite or CI/CD workflow is currently included.
+- No repository-level CI workflow currently runs all tests automatically.
 - Investment values are entered manually; there is no historical price series.
 - Scheduled jobs run in the API process rather than a dedicated worker.
 - Payments and bank integrations are not implemented.

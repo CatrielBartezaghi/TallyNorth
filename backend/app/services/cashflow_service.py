@@ -44,45 +44,35 @@ def get_monthly_projection(
     installments_q = db.query(Installment).filter(
         Installment.due_date >= first_month_start,
         Installment.due_date <= last_month_end,
-        Installment.is_paid == False,  # noqa: E712
+        Installment.is_paid.is_(False),
     )
     if user_id:
         installments_q = installments_q.filter(Installment.user_id == user_id)
     installments = installments_q.all()
 
-    # Legacy recurring templates are not actual movements themselves.
     transactions_q = db.query(Transaction).filter(
         Transaction.date >= first_month_start,
         Transaction.date <= last_month_end,
-        Transaction.is_recurring == False,  # noqa: E712
     )
     if user_id:
         transactions_q = transactions_q.filter(Transaction.user_id == user_id)
     transactions = transactions_q.all()
 
-    legacy_recurring_q = db.query(Transaction).filter(
-        Transaction.is_recurring == True,  # noqa: E712
-        Transaction.recurrence_rule == "monthly",
-    )
-    if user_id:
-        legacy_recurring_q = legacy_recurring_q.filter(Transaction.user_id == user_id)
-    legacy_recurring = legacy_recurring_q.all()
-
-    unified_q = db.query(RecurringEntry).options(
+    recurring_q = db.query(RecurringEntry).options(
         joinedload(RecurringEntry.credit_card),
         joinedload(RecurringEntry.account),
     ).filter(RecurringEntry.active.is_(True))
     if user_id:
-        unified_q = unified_q.filter(RecurringEntry.user_id == user_id)
-    unified_entries = unified_q.all()
+        recurring_q = recurring_q.filter(RecurringEntry.user_id == user_id)
+    recurring_entries = recurring_q.all()
 
-    # Only future unified occurrences are projected. Today/past are materialized
-    # by sync_recurring_entries and therefore already represented above.
+    # Today and past occurrences are already materialized as transactions or
+    # purchases. Only future occurrences are projected from the recurring rule.
     future_from = max(first_month_start, date.today() + timedelta(days=1))
     projected_account_occurrences: list[tuple[RecurringEntry, date]] = []
     projected_card_installments: list[tuple[RecurringEntry, date]] = []
     if future_from <= last_month_end:
-        for entry in unified_entries:
+        for entry in recurring_entries:
             for occurrence_date in occurrence_dates_between(entry, future_from, last_month_end):
                 if entry.destination_type == "account":
                     projected_account_occurrences.append((entry, occurrence_date))
@@ -106,22 +96,6 @@ def get_monthly_projection(
             Decimal(str(t.amount))
             for t in transactions
             if t.type == "expense" and month_start <= t.date <= month_end
-        )
-
-        # Backward-compatible projection for old monthly transaction templates.
-        income += sum(
-            Decimal(str(t.amount))
-            for t in legacy_recurring
-            if t.type == "income"
-            and t.date <= month_end
-            and (t.end_date is None or t.end_date >= month_start)
-        )
-        expenses += sum(
-            Decimal(str(t.amount))
-            for t in legacy_recurring
-            if t.type == "expense"
-            and t.date <= month_end
-            and (t.end_date is None or t.end_date >= month_start)
         )
 
         income += sum(
@@ -159,6 +133,16 @@ def get_monthly_projection(
     return projection
 
 
-def get_month_summary(db: Session, year: int, month: int, user_id: uuid.UUID | None = None) -> dict:
-    result = get_monthly_projection(db, start_date=date(year, month, 1), num_months=1, user_id=user_id)
+def get_month_summary(
+    db: Session,
+    year: int,
+    month: int,
+    user_id: uuid.UUID | None = None,
+) -> dict:
+    result = get_monthly_projection(
+        db,
+        start_date=date(year, month, 1),
+        num_months=1,
+        user_id=user_id,
+    )
     return result[0] if result else {}

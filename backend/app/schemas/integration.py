@@ -9,8 +9,9 @@ from app.schemas.budget import BudgetRead
 from app.schemas.installment import InstallmentRead
 from app.schemas.investment import InvestmentRead, InvestmentType
 from app.schemas.purchase import PurchaseRead
+from app.schemas.recurring_entry import RecurringEntryBase, RecurringEntryRead
 from app.schemas.saving_goal import SavingGoalRead
-from app.schemas.transaction import RecurrenceRule, TransactionRead, TransactionType
+from app.schemas.transaction import TransactionRead, TransactionType
 
 
 IntegrationScope = Literal[
@@ -51,15 +52,15 @@ class IntegrationTokenCreate(BaseModel):
     ) -> list[IntegrationScope]:
         return list(dict.fromkeys(value))
 
-    @field_validator('expires_at')
+    @field_validator("expires_at")
     @classmethod
     def validate_expiration(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError('expires_at must include a timezone')
+            raise ValueError("expires_at must include a timezone")
         if value <= datetime.now(timezone.utc):
-            raise ValueError('expires_at must be in the future')
+            raise ValueError("expires_at must be in the future")
         return value
 
 
@@ -122,7 +123,7 @@ class ChatGPTFinanceContext(BaseModel):
 
 
 class ChatGPTTransactionCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     idempotency_key: str = Field(
         min_length=8,
@@ -139,25 +140,20 @@ class ChatGPTTransactionCreate(BaseModel):
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     description: str = Field(min_length=1, max_length=255)
     date: date
-    is_recurring: bool = False
-    recurrence_rule: RecurrenceRule | None = None
-    end_date: date | None = None
 
-    @model_validator(mode="after")
-    def validate_recurrence(self) -> "ChatGPTTransactionCreate":
-        if self.is_recurring and self.recurrence_rule is None:
-            raise ValueError(
-                "recurrence_rule is required when is_recurring is true"
-            )
-        if not self.is_recurring and (
-            self.recurrence_rule is not None or self.end_date is not None
-        ):
-            raise ValueError(
-                "recurrence_rule and end_date require is_recurring=true"
-            )
-        if self.end_date is not None and self.end_date < self.date:
-            raise ValueError("end_date cannot be before date")
-        return self
+
+class ChatGPTRecurringEntryCreate(RecurringEntryBase):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    idempotency_key: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        description=(
+            "Identificador único para esta operación. Reutilizalo solamente al "
+            "reintentar exactamente la misma carga."
+        ),
+    )
 
 
 class ChatGPTPurchaseCreate(BaseModel):
@@ -198,10 +194,17 @@ class ChatGPTTransactionResult(BaseModel):
     transaction: TransactionRead
 
 
+class ChatGPTRecurringEntryResult(BaseModel):
+    status: ActionResultStatus
+    message: str
+    recurring_entry: RecurringEntryRead
+
+
 class ChatGPTPurchaseResult(BaseModel):
     status: ActionResultStatus
     message: str
     purchase: PurchaseRead
+
 
 FinanceEntryKind = Literal["transaction", "credit_card_purchase"]
 
@@ -222,6 +225,7 @@ class ChatGPTFinanceEntryRead(BaseModel):
     credit_card_name: str | None = None
     installments: int | None = None
     installment_amount: Decimal | None = None
+    recurring_entry_id: uuid.UUID | None = None
 
 
 class ChatGPTFinanceEntrySearchResult(BaseModel):
@@ -268,7 +272,7 @@ class ChatGPTInstallmentSearchResult(BaseModel):
 
 
 class ChatGPTBatchTransactionCreate(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     kind: Literal["transaction"]
     account_id: uuid.UUID
@@ -277,25 +281,6 @@ class ChatGPTBatchTransactionCreate(BaseModel):
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     description: str = Field(min_length=1, max_length=255)
     date: date
-    is_recurring: bool = False
-    recurrence_rule: RecurrenceRule | None = None
-    end_date: date | None = None
-
-    @model_validator(mode="after")
-    def validate_recurrence(self) -> "ChatGPTBatchTransactionCreate":
-        if self.is_recurring and self.recurrence_rule is None:
-            raise ValueError(
-                "recurrence_rule is required when is_recurring is true"
-            )
-        if not self.is_recurring and (
-            self.recurrence_rule is not None or self.end_date is not None
-        ):
-            raise ValueError(
-                "recurrence_rule and end_date require is_recurring=true"
-            )
-        if self.end_date is not None and self.end_date < self.date:
-            raise ValueError("end_date cannot be before date")
-        return self
 
 
 class ChatGPTBatchPurchaseCreate(BaseModel):
