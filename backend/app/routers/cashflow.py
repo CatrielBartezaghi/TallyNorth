@@ -12,8 +12,8 @@ from app.models.user import User
 from app.routers.deps import get_current_active_user
 from app.schemas.cashflow import DashboardSummary, MonthlyProjection
 from app.services import cashflow_service
+from app.services.installment_sync_service import sync_credit_card_installments
 from app.services.recurring_entry_service import sync_recurring_entries
-from app.services.transaction_sync_service import sync_credit_card_installments
 
 router = APIRouter(prefix="/cashflow", tags=["Cashflow"])
 
