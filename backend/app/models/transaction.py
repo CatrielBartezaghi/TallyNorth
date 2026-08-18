@@ -1,9 +1,9 @@
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime
 
-from sqlalchemy import String, Numeric, DateTime, Date, Boolean, Enum as SAEnum, ForeignKey, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -30,15 +30,6 @@ class Transaction(Base):
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
-
-    # Legacy recurring fields are retained temporarily for backward compatibility
-    # with existing integrations. New recurrence uses RecurringEntry instead.
-    is_recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    recurrence_rule: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("transactions.id", ondelete="SET NULL"), nullable=True
-    )
     recurring_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("recurring_entries.id", ondelete="SET NULL"), nullable=True
     )
@@ -49,7 +40,6 @@ class Transaction(Base):
     user: Mapped["User"] = relationship("User")  # noqa: F821
     account: Mapped["Account"] = relationship("Account")  # noqa: F821
     category_ref: Mapped["Category | None"] = relationship("Category")  # noqa: F821
-    parent: Mapped["Transaction | None"] = relationship("Transaction", remote_side=[id])
     recurring_entry: Mapped["RecurringEntry | None"] = relationship("RecurringEntry")  # noqa: F821
 
     def __repr__(self) -> str:
