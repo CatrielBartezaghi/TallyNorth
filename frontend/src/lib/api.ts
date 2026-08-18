@@ -3,14 +3,11 @@ const API_V1 = `${API_BASE}/api/v1`;
 
 import Cookies from "js-cookie";
 
-// ---------------------------------------------------------------------------
-// Generic fetch helper
-// ---------------------------------------------------------------------------
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = Cookies.get("token");
   const headers = new Headers(options?.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  
+
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -34,9 +31,6 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 export type AccountType = "checking" | "savings" | "cash";
 export type TransactionType = "income" | "expense";
 export type RecurrenceRule = "monthly" | "weekly" | "yearly";
@@ -85,9 +79,7 @@ export interface Transaction {
   description: string;
   category: string | null;
   date: string;
-  is_recurring: boolean;
-  recurrence_rule: RecurrenceRule | null;
-  end_date: string | null;
+  recurring_entry_id: string | null;
   created_at: string;
 }
 
@@ -114,6 +106,7 @@ export interface Purchase {
   purchase_date: string;
   first_installment_date: string;
   category: string | null;
+  recurring_entry_id: string | null;
   created_at: string;
   installment_rows: Installment[];
 }
@@ -296,9 +289,6 @@ export interface TransactionPayload {
   description: string;
   category?: string | null;
   date: string;
-  is_recurring: boolean;
-  recurrence_rule?: RecurrenceRule | null;
-  end_date?: string | null;
 }
 
 export interface PurchasePayload {
@@ -313,16 +303,12 @@ export interface PurchasePayload {
 }
 
 export type PurchaseUpdatePayload = Partial<PurchasePayload>;
-
 export type CategoryPayload = Omit<Category, "id" | "created_at">;
 export type BudgetPayload = Omit<Budget, "id" | "created_at" | "category" | "currency">;
 export type SavingGoalPayload = Omit<SavingGoal, "id" | "created_at" | "currency">;
 export type InvestmentPayload = Omit<Investment, "id" | "created_at" | "currency">;
 export type ExchangeRatePayload = Omit<ExchangeRate, "id" | "created_at" | "from_currency" | "to_currency">;
 
-// ---------------------------------------------------------------------------
-// Currencies API
-// ---------------------------------------------------------------------------
 export const currenciesApi = {
   list: () => apiFetch<Currency[]>("/currencies/"),
   get: (id: string) => apiFetch<Currency>(`/currencies/${id}`),
@@ -330,13 +316,9 @@ export const currenciesApi = {
     apiFetch<Currency>("/currencies/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Omit<Currency, "id" | "code" | "created_at">>) =>
     apiFetch<Currency>(`/currencies/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/currencies/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/currencies/${id}`, { method: "DELETE" }),
 };
 
-// ---------------------------------------------------------------------------
-// Accounts API
-// ---------------------------------------------------------------------------
 export const accountsApi = {
   list: () => apiFetch<Account[]>("/accounts/"),
   get: (id: string) => apiFetch<Account>(`/accounts/${id}`),
@@ -344,15 +326,11 @@ export const accountsApi = {
     apiFetch<Account>("/accounts/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: { name?: string; type?: AccountType; currency_id?: string; initial_balance?: number }) =>
     apiFetch<Account>(`/accounts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/accounts/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/accounts/${id}`, { method: "DELETE" }),
   adjustBalance: (id: string, target_balance: number) =>
     apiFetch<Account>(`/accounts/${id}/adjust`, { method: "POST", body: JSON.stringify({ target_balance }) }),
 };
 
-// ---------------------------------------------------------------------------
-// Categories API
-// ---------------------------------------------------------------------------
 export const categoriesApi = {
   list: () => apiFetch<Category[]>("/categories/"),
   get: (id: string) => apiFetch<Category>(`/categories/${id}`),
@@ -360,13 +338,9 @@ export const categoriesApi = {
     apiFetch<Category>("/categories/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<CategoryPayload>) =>
     apiFetch<Category>(`/categories/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/categories/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/categories/${id}`, { method: "DELETE" }),
 };
 
-// ---------------------------------------------------------------------------
-// Credit Cards API
-// ---------------------------------------------------------------------------
 export const creditCardsApi = {
   list: () => apiFetch<CreditCard[]>("/credit-cards/"),
   get: (id: string) => apiFetch<CreditCard>(`/credit-cards/${id}`),
@@ -374,10 +348,8 @@ export const creditCardsApi = {
     apiFetch<CreditCard>("/credit-cards/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<CreditCardPayload>) =>
     apiFetch<CreditCard>(`/credit-cards/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/credit-cards/${id}`, { method: "DELETE" }),
-  listInstallments: (id: string) =>
-    apiFetch<Installment[]>(`/credit-cards/${id}/installments`),
+  delete: (id: string) => apiFetch<void>(`/credit-cards/${id}`, { method: "DELETE" }),
+  listInstallments: (id: string) => apiFetch<Installment[]>(`/credit-cards/${id}/installments`),
 };
 
 export const installmentsApi = {
@@ -385,17 +357,12 @@ export const installmentsApi = {
     apiFetch<Installment>(`/installments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
 };
 
-// ---------------------------------------------------------------------------
-// Transactions API
-// ---------------------------------------------------------------------------
 export const transactionsApi = {
   list: (params?: { account_id?: string; type?: string; date_from?: string; date_to?: string }) => {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== "") {
-          searchParams.append(key, value);
-        }
+        if (value !== undefined && value !== "") searchParams.append(key, value);
       });
     }
     const qs = searchParams.toString() ? "?" + searchParams.toString() : "";
@@ -406,13 +373,9 @@ export const transactionsApi = {
     apiFetch<Transaction>("/transactions/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<TransactionPayload>) =>
     apiFetch<Transaction>(`/transactions/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/transactions/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/transactions/${id}`, { method: "DELETE" }),
 };
 
-// ---------------------------------------------------------------------------
-// Purchases API
-// ---------------------------------------------------------------------------
 export const purchasesApi = {
   list: () => apiFetch<Purchase[]>("/purchases/"),
   get: (id: string) => apiFetch<Purchase>(`/purchases/${id}`),
@@ -422,16 +385,11 @@ export const purchasesApi = {
     apiFetch<Purchase[]>("/purchases/bulk", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: PurchaseUpdatePayload) =>
     apiFetch<Purchase>(`/purchases/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/purchases/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/purchases/${id}`, { method: "DELETE" }),
 };
 
-// ---------------------------------------------------------------------------
-// Cashflow API
-// ---------------------------------------------------------------------------
 export const cashflowApi = {
-  projection: (months = 6) =>
-    apiFetch<MonthlyProjection[]>(`/cashflow/projection?months=${months}`),
+  projection: (months = 6) => apiFetch<MonthlyProjection[]>(`/cashflow/projection?months=${months}`),
   summary: (month?: string) => {
     const qs = month ? `?month=${month}` : "";
     return apiFetch<MonthlyProjection>(`/cashflow/summary${qs}`);
@@ -447,8 +405,7 @@ export const budgetsApi = {
     apiFetch<Budget>("/budgets/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<BudgetPayload>) =>
     apiFetch<Budget>(`/budgets/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/budgets/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/budgets/${id}`, { method: "DELETE" }),
 };
 
 export const savingGoalsApi = {
@@ -458,8 +415,7 @@ export const savingGoalsApi = {
     apiFetch<SavingGoal>("/saving-goals/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<SavingGoalPayload>) =>
     apiFetch<SavingGoal>(`/saving-goals/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/saving-goals/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/saving-goals/${id}`, { method: "DELETE" }),
 };
 
 export const investmentsApi = {
@@ -469,8 +425,7 @@ export const investmentsApi = {
     apiFetch<Investment>("/investments/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<InvestmentPayload>) =>
     apiFetch<Investment>(`/investments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/investments/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/investments/${id}`, { method: "DELETE" }),
 };
 
 export const exchangeRatesApi = {
@@ -494,8 +449,7 @@ export const exchangeRatesApi = {
     apiFetch<ExchangeRate>("/exchange-rates/", { method: "POST", body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Pick<ExchangeRatePayload, "rate" | "date">>) =>
     apiFetch<ExchangeRate>(`/exchange-rates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
-  delete: (id: string) =>
-    apiFetch<void>(`/exchange-rates/${id}`, { method: "DELETE" }),
+  delete: (id: string) => apiFetch<void>(`/exchange-rates/${id}`, { method: "DELETE" }),
 };
 
 export const dashboardApi = {
@@ -516,7 +470,12 @@ export const authApi = {
       return res.json();
     }),
   register: (data: { email: string; password: string }) =>
-    fetch(`${API_BASE}/api/auth/register`, { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data), credentials: "include" }).then(res => {
+    fetch(`${API_BASE}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      credentials: "include",
+    }).then(res => {
       if (!res.ok) throw new Error("Register failed");
       return res.json();
     }),
