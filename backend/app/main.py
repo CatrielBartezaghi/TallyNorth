@@ -7,13 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import (
     accounts,
-    assistant,
+    auth,
     budgets,
     cashflow,
     categories,
     chatgpt_account_actions,
     chatgpt_actions,
     chatgpt_category_actions,
+    chatgpt_recurring_actions,
     credit_cards,
     currencies,
     dashboard,
@@ -25,7 +26,6 @@ from app.routers import (
     recurring_entries,
     saving_goals,
     transactions,
-    auth,
 )
 from app.services.exchange_rate_scheduler import start_exchange_rate_cron, stop_exchange_rate_cron
 
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await stop_exchange_rate_cron(exchange_rate_task)
+
 
 app = FastAPI(
     title="TallyNorth API",
@@ -73,8 +74,8 @@ route_base = "" if settings.environment == "production" else "/api"
 API_PREFIX = f"{route_base}/v1"
 
 app.include_router(accounts.router, prefix=API_PREFIX)
-app.include_router(assistant.router, prefix=API_PREFIX)
 app.include_router(chatgpt_actions.router, prefix=API_PREFIX)
+app.include_router(chatgpt_recurring_actions.router, prefix=API_PREFIX)
 app.include_router(chatgpt_account_actions.router, prefix=API_PREFIX)
 app.include_router(chatgpt_category_actions.router, prefix=API_PREFIX)
 app.include_router(integration_tokens.router, prefix=API_PREFIX)
