@@ -13,8 +13,10 @@ from app.models.exchange_rate import ExchangeRate
 from app.models.installment import Installment
 from app.models.investment import Investment
 from app.models.purchase import CreditCardPurchase
+from app.models.recurring_entry import RecurringEntry
 from app.models.saving_goal import SavingGoal
 from app.models.transaction import Transaction
+from app.services.recurring_entry_service import occurrence_dates_between, projected_card_due_date
 
 
 MONEY = Decimal("0.01")
@@ -119,19 +121,31 @@ class Converter:
         return _q(value * rate_value)
 
 
-def build_dashboard_summary(db: Session, date_from: date, date_to: date, currency_code: str, user_id: str) -> dict:
+def build_dashboard_summary(
+    db: Session,
+    date_from: date,
+    date_to: date,
+    currency_code: str,
+    user_id: str,
+) -> dict:
     converter = Converter(db, currency_code, date_to)
     prev_days = (date_to - date_from).days + 1
     previous_to = date_from - timedelta(days=1)
     previous_from = previous_to - timedelta(days=prev_days - 1)
 
-    categories = {c.id: c for c in db.query(Category).filter(Category.user_id == user_id).all()}
+    categories = {
+        c.id: c for c in db.query(Category).filter(Category.user_id == user_id).all()
+    }
     categories_by_name = {c.name.lower(): c for c in categories.values()}
 
     transactions = (
         db.query(Transaction)
         .options(joinedload(Transaction.account), joinedload(Transaction.category_ref))
-        .filter(Transaction.user_id == user_id, Transaction.date >= previous_from, Transaction.date <= date_to)
+        .filter(
+            Transaction.user_id == user_id,
+            Transaction.date >= previous_from,
+            Transaction.date <= date_to,
+        )
         .all()
     )
     installments = (
@@ -140,7 +154,11 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card),
             joinedload(Installment.purchase).joinedload(CreditCardPurchase.category_ref),
         )
-        .filter(Installment.user_id == user_id, Installment.due_date >= previous_from, Installment.due_date <= date_to)
+        .filter(
+            Installment.user_id == user_id,
+            Installment.due_date >= previous_from,
+            Installment.due_date <= date_to,
+        )
         .all()
     )
 
@@ -158,7 +176,10 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
                     expenses += converted
         for installment in installments:
             if start <= installment.due_date <= end:
-                converted = converter.convert(installment.amount, installment.purchase.credit_card.currency)
+                converted = converter.convert(
+                    installment.amount,
+                    installment.purchase.credit_card.currency,
+                )
                 if converted is not None:
                     expenses += converted
         return _q(income), _q(expenses)
@@ -169,7 +190,10 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     previous_net = _q(previous_income - previous_expenses)
 
     monthly_map: dict[str, dict[str, Decimal]] = {
-        f"{year:04d}-{month:02d}": {"income": Decimal("0"), "expenses": Decimal("0")}
+        f"{year:04d}-{month:02d}": {
+            "income": Decimal("0"),
+            "expenses": Decimal("0"),
+        }
         for year, month in _months_between(_month_start(date_from), _month_start(date_to))
     }
     for tx in transactions:
@@ -181,28 +205,47 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             monthly_map[key]["income" if tx.type == "income" else "expenses"] += converted
     for installment in installments:
         if date_from <= installment.due_date <= date_to:
-            converted = converter.convert(installment.amount, installment.purchase.credit_card.currency)
+            converted = converter.convert(
+                installment.amount,
+                installment.purchase.credit_card.currency,
+            )
             if converted is not None:
                 key = f"{installment.due_date.year:04d}-{installment.due_date.month:02d}"
                 monthly_map[key]["expenses"] += converted
 
-    today_month_start = _month_start(date.today())
-    recurring_txs = (
-        db.query(Transaction)
-        .options(joinedload(Transaction.account))
-        .filter(Transaction.user_id == user_id, Transaction.is_recurring == True, Transaction.recurrence_rule == "monthly")  # noqa: E712
-        .all()
-    )
-    for key in monthly_map:
-        year, month = map(int, key.split("-"))
-        month_start = date(year, month, 1)
-        month_end = _month_end(month_start)
-        if month_start > today_month_start:
-            for t in recurring_txs:
-                if t.date <= month_end and (t.end_date is None or t.end_date >= month_start):
-                    converted = converter.convert(t.amount, t.account.currency)
-                    if converted is not None:
-                        monthly_map[key]["income" if t.type == "income" else "expenses"] += converted
+    future_from = max(date_from, date.today() + timedelta(days=1))
+    if future_from <= date_to:
+        recurring_entries = (
+            db.query(RecurringEntry)
+            .options(
+                joinedload(RecurringEntry.account).joinedload(Account.currency),
+                joinedload(RecurringEntry.credit_card),
+            )
+            .filter(
+                RecurringEntry.user_id == user_id,
+                RecurringEntry.active.is_(True),
+            )
+            .all()
+        )
+        for entry in recurring_entries:
+            for occurrence_date in occurrence_dates_between(entry, future_from, date_to):
+                if entry.destination_type == "account":
+                    converted = converter.convert(entry.amount, entry.account.currency)
+                    if converted is None:
+                        continue
+                    key = f"{occurrence_date.year:04d}-{occurrence_date.month:02d}"
+                    if key in monthly_map:
+                        monthly_map[key]["income" if entry.type == "income" else "expenses"] += converted
+                else:
+                    due_date = projected_card_due_date(entry, occurrence_date)
+                    if not (date_from <= due_date <= date_to):
+                        continue
+                    converted = converter.convert(entry.amount, entry.credit_card.currency)
+                    if converted is None:
+                        continue
+                    key = f"{due_date.year:04d}-{due_date.month:02d}"
+                    if key in monthly_map:
+                        monthly_map[key]["expenses"] += converted
 
     expenses_by_category: defaultdict[str, Decimal] = defaultdict(Decimal)
     category_colors: dict[str, str] = {}
@@ -213,7 +256,13 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
         converted = converter.convert(tx.amount, tx.account.currency)
         if converted is not None:
             expenses_by_category[name] += converted
-            category_colors[name] = (tx.category_ref.color if tx.category_ref else categories_by_name.get(name.lower(), None).color if name.lower() in categories_by_name else "#64748b")
+            category_colors[name] = (
+                tx.category_ref.color
+                if tx.category_ref
+                else categories_by_name[name.lower()].color
+                if name.lower() in categories_by_name
+                else "#64748b"
+            )
     for installment in installments:
         if not (date_from <= installment.due_date <= date_to):
             continue
@@ -224,18 +273,26 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             expenses_by_category[name] += converted
             category_colors[name] = purchase.category_ref.color if purchase.category_ref else "#f59e0b"
 
-    accounts = db.query(Account).options(joinedload(Account.currency)).filter(Account.user_id == user_id).all()
+    accounts = (
+        db.query(Account)
+        .options(joinedload(Account.currency))
+        .filter(Account.user_id == user_id)
+        .all()
+    )
     account_balances = []
     account_total = Decimal("0")
     paid_installments = (
         db.query(Installment)
         .options(joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card))
-        .filter(Installment.user_id == user_id, Installment.is_paid == True)  # noqa: E712
+        .filter(Installment.user_id == user_id, Installment.is_paid.is_(True))
         .all()
     )
     for account in accounts:
         balance = _decimal(account.initial_balance)
-        for tx in db.query(Transaction).filter(Transaction.user_id == user_id, Transaction.account_id == account.id).all():
+        for tx in db.query(Transaction).filter(
+            Transaction.user_id == user_id,
+            Transaction.account_id == account.id,
+        ).all():
             balance += _decimal(tx.amount) if tx.type == "income" else -_decimal(tx.amount)
         for inst in paid_installments:
             if inst.paid_account_id == account.id:
@@ -254,7 +311,12 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             }
         )
 
-    investments = db.query(Investment).options(joinedload(Investment.currency)).filter(Investment.user_id == user_id).all()
+    investments = (
+        db.query(Investment)
+        .options(joinedload(Investment.currency))
+        .filter(Investment.user_id == user_id)
+        .all()
+    )
     investment_rows = []
     investment_total = Decimal("0")
     for inv in investments:
@@ -277,7 +339,12 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             }
         )
 
-    goals = db.query(SavingGoal).options(joinedload(SavingGoal.currency)).filter(SavingGoal.user_id == user_id).all()
+    goals = (
+        db.query(SavingGoal)
+        .options(joinedload(SavingGoal.currency))
+        .filter(SavingGoal.user_id == user_id)
+        .all()
+    )
     goal_rows = []
     goals_total = Decimal("0")
     for goal in goals:
@@ -308,7 +375,11 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
     upcoming = (
         db.query(Installment)
         .options(joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card))
-        .filter(Installment.user_id == user_id, Installment.due_date >= date.today(), Installment.is_paid == False)  # noqa: E712
+        .filter(
+            Installment.user_id == user_id,
+            Installment.due_date >= date.today(),
+            Installment.is_paid.is_(False),
+        )
         .order_by(Installment.due_date)
         .limit(8)
         .all()
@@ -321,14 +392,21 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
             "total_installments": inst.purchase.installments,
             "due_date": inst.due_date,
             "amount": _decimal(inst.amount),
-            "converted_amount": converter.convert(inst.amount, inst.purchase.credit_card.currency),
+            "converted_amount": converter.convert(
+                inst.amount,
+                inst.purchase.credit_card.currency,
+            ),
             "card_name": inst.purchase.credit_card.name,
         }
         for inst in upcoming
     ]
 
     recent_movements = []
-    for tx in sorted([t for t in transactions if date_from <= t.date <= date_to], key=lambda t: t.date, reverse=True)[:10]:
+    for tx in sorted(
+        [t for t in transactions if date_from <= t.date <= date_to],
+        key=lambda t: t.date,
+        reverse=True,
+    )[:10]:
         recent_movements.append(
             {
                 "id": str(tx.id),
@@ -356,7 +434,11 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
         for tx in transactions:
             matches_id = tx.category_id == budget.category_id
             matches_name = (tx.category or "").lower() == budget.category.name.lower()
-            if tx.type == "expense" and period_start <= tx.date <= period_end and (matches_id or matches_name):
+            if (
+                tx.type == "expense"
+                and period_start <= tx.date <= period_end
+                and (matches_id or matches_name)
+            ):
                 converted = converter.convert(tx.amount, tx.account.currency)
                 if converted is not None:
                     actual += converted
@@ -377,10 +459,16 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
         {
             "category": name,
             "amount": _q(amount),
-            "percent": _q((amount / category_total) * Decimal("100")) if category_total else Decimal("0"),
+            "percent": _q((amount / category_total) * Decimal("100"))
+            if category_total
+            else Decimal("0"),
             "color": category_colors.get(name, "#64748b"),
         }
-        for name, amount in sorted(expenses_by_category.items(), key=lambda item: item[1], reverse=True)
+        for name, amount in sorted(
+            expenses_by_category.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )
     ]
 
     return {
@@ -389,10 +477,26 @@ def build_dashboard_summary(db: Session, date_from: date, date_to: date, currenc
         "date_to": date_to,
         "warnings": sorted(set(converter.warnings)),
         "kpis": {
-            "income": {"value": income, "previous_value": previous_income, "change_pct": _pct(income, previous_income)},
-            "expenses": {"value": expenses, "previous_value": previous_expenses, "change_pct": _pct(expenses, previous_expenses)},
-            "net_savings": {"value": net, "previous_value": previous_net, "change_pct": _pct(net, previous_net)},
-            "wealth": {"value": wealth, "previous_value": previous_wealth, "change_pct": _pct(wealth, previous_wealth)},
+            "income": {
+                "value": income,
+                "previous_value": previous_income,
+                "change_pct": _pct(income, previous_income),
+            },
+            "expenses": {
+                "value": expenses,
+                "previous_value": previous_expenses,
+                "change_pct": _pct(expenses, previous_expenses),
+            },
+            "net_savings": {
+                "value": net,
+                "previous_value": previous_net,
+                "change_pct": _pct(net, previous_net),
+            },
+            "wealth": {
+                "value": wealth,
+                "previous_value": previous_wealth,
+                "change_pct": _pct(wealth, previous_wealth),
+            },
         },
         "monthly_flow": [
             {
