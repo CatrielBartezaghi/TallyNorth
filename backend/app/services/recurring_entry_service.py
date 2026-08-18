@@ -24,7 +24,7 @@ def advance_recurrence(value: date, frequency: str) -> date:
 
 
 def occurrence_dates_between(entry: RecurringEntry, start: date, end: date) -> list[date]:
-    """Return scheduled dates for an entry inside an inclusive date window."""
+    """Return scheduled dates for an active entry inside an inclusive date window."""
     if end < start or not entry.active:
         return []
 
@@ -76,7 +76,6 @@ def _materialize_account_occurrence(
             description=entry.description,
             category=entry.category,
             date=occurrence_date,
-            is_recurring=False,
             recurring_entry_id=entry.id,
         )
     )
@@ -146,8 +145,6 @@ def sync_recurring_entries(db: Session, user_id: uuid.UUID | str) -> int:
         if entry.last_generated_date is None:
             next_date = entry.start_date
         elif entry.start_date > entry.last_generated_date:
-            # A schedule edit may move the next occurrence forward. Never
-            # recreate already-materialized history under the new schedule.
             next_date = entry.start_date
         else:
             next_date = advance_recurrence(entry.last_generated_date, entry.frequency)
