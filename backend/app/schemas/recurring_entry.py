@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 RecurringFrequency = Literal["weekly", "monthly", "yearly"]
 RecurringDestinationType = Literal["account", "credit_card"]
 RecurringEntryType = Literal["income", "expense"]
+RecurringSettlementMode = Literal["automatic", "manual"]
+RecurringOccurrenceStatus = Literal["pending", "settled", "skipped"]
 
 
 class RecurringEntryBase(BaseModel):
@@ -22,6 +24,7 @@ class RecurringEntryBase(BaseModel):
     start_date: date
     end_date: date | None = None
     active: bool = True
+    settlement_mode: RecurringSettlementMode = "automatic"
     destination_type: RecurringDestinationType
     account_id: uuid.UUID | None = None
     credit_card_id: uuid.UUID | None = None
@@ -36,7 +39,7 @@ class RecurringEntryBase(BaseModel):
                 raise ValueError("account destination requires only account_id")
         else:
             if self.credit_card_id is None or self.account_id is not None:
-                raise ValueError("credit_card destination requires only credit_card_id")
+                raise ValueError("credit card destination requires only credit_card_id")
             if self.type != "expense":
                 raise ValueError("credit card recurring entries must be expenses")
 
@@ -58,6 +61,7 @@ class RecurringEntryUpdate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     active: bool | None = None
+    settlement_mode: RecurringSettlementMode | None = None
     destination_type: RecurringDestinationType | None = None
     account_id: uuid.UUID | None = None
     credit_card_id: uuid.UUID | None = None
@@ -70,3 +74,24 @@ class RecurringEntryRead(RecurringEntryBase):
     category: str | None = None
     last_generated_date: date | None = None
     created_at: datetime
+
+
+class RecurringOccurrenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    recurring_entry_id: uuid.UUID
+    scheduled_date: date
+    amount: Decimal
+    status: RecurringOccurrenceStatus
+    transaction_id: uuid.UUID | None = None
+    purchase_id: uuid.UUID | None = None
+    settled_at: datetime | None = None
+    created_at: datetime
+    entry: RecurringEntryRead
+
+
+class RecurringOccurrenceSettle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    effective_date: date | None = None
