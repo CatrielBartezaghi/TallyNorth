@@ -55,6 +55,11 @@ class RecurringEntry(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    settlement_mode: Mapped[str] = mapped_column(
+        SAEnum("automatic", "manual", name="recurring_settlement_mode_enum"),
+        nullable=False,
+        default="automatic",
+    )
 
     destination_type: Mapped[str] = mapped_column(
         SAEnum("account", "credit_card", name="recurring_destination_type_enum"),
@@ -76,6 +81,15 @@ class RecurringEntry(Base):
     account: Mapped["Account | None"] = relationship("Account")  # noqa: F821
     credit_card: Mapped["CreditCard | None"] = relationship("CreditCard")  # noqa: F821
     category_ref: Mapped["Category | None"] = relationship("Category")  # noqa: F821
+    occurrences: Mapped[list["RecurringOccurrence"]] = relationship(  # noqa: F821
+        "RecurringOccurrence",
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        order_by="RecurringOccurrence.scheduled_date",
+    )
 
     def __repr__(self) -> str:
-        return f"<RecurringEntry id={self.id} description={self.description!r} destination={self.destination_type}>"
+        return (
+            f"<RecurringEntry id={self.id} description={self.description!r} "
+            f"destination={self.destination_type} settlement={self.settlement_mode}>"
+        )
