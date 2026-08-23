@@ -9,6 +9,7 @@ from app.routers.deps import get_current_active_user
 from app.schemas.dashboard import DashboardSummary
 from app.services.dashboard_service import build_dashboard_summary
 from app.services.installment_sync_service import sync_credit_card_installments
+from app.services.recurring_dashboard_service import augment_dashboard_with_pending_occurrences
 from app.services.recurring_entry_service import sync_recurring_entries
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -29,8 +30,16 @@ def get_dashboard_summary(
     sync_credit_card_installments(db, current_user.id)
 
     try:
-        return build_dashboard_summary(
+        summary = build_dashboard_summary(
             db,
+            date_from=date_from,
+            date_to=date_to,
+            currency_code=currency.upper(),
+            user_id=current_user.id,
+        )
+        return augment_dashboard_with_pending_occurrences(
+            db,
+            summary,
             date_from=date_from,
             date_to=date_to,
             currency_code=currency.upper(),
