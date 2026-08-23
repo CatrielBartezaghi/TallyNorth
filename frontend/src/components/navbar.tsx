@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   BarChart3,
+  CalendarClock,
   CreditCard,
   Landmark,
   LineChart,
@@ -43,6 +44,8 @@ export function Navbar() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  const scheduledActive = pathname === "/scheduled";
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm">
@@ -83,6 +86,17 @@ export function Navbar() {
                   </Link>
                 );
               })}
+              <Link
+                href="/scheduled"
+                className={`flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  scheduledActive
+                    ? "bg-emerald-500/10 text-emerald-300"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                <CalendarClock size={15} />
+                {lang === "es" ? "Programados" : "Scheduled"}
+              </Link>
             </nav>
 
             <div className="hidden min-w-56 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-muted-foreground 2xl:flex">
@@ -152,6 +166,18 @@ export function Navbar() {
                   </Link>
                 );
               })}
+              <Link
+                href="/scheduled"
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
+                  scheduledActive
+                    ? "bg-emerald-500/10 text-emerald-300"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                <CalendarClock size={17} />
+                {lang === "es" ? "Programados" : "Scheduled"}
+              </Link>
             </nav>
 
             <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
