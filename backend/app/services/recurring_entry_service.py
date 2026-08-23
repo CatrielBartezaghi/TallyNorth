@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
@@ -9,6 +9,7 @@ from app.models.credit_card import CreditCard
 from app.models.installment import Installment
 from app.models.purchase import CreditCardPurchase
 from app.models.recurring_entry import RecurringEntry
+from app.models.recurring_occurrence import RecurringOccurrence
 from app.models.transaction import Transaction
 from app.services.installment_service import compute_first_installment_date
 
@@ -50,83 +51,148 @@ def projected_card_due_date(entry: RecurringEntry, occurrence_date: date) -> dat
     )
 
 
-def _materialize_account_occurrence(
+def _get_or_create_occurrence(
     db: Session,
     entry: RecurringEntry,
-    occurrence_date: date,
-) -> None:
-    existing = (
-        db.query(Transaction)
+    scheduled_date: date,
+) -> tuple[RecurringOccurrence, bool]:
+    occurrence = (
+        db.query(RecurringOccurrence)
         .filter(
-            Transaction.recurring_entry_id == entry.id,
-            Transaction.date == occurrence_date,
+            RecurringOccurrence.recurring_entry_id == entry.id,
+            RecurringOccurrence.scheduled_date == scheduled_date,
         )
         .first()
     )
-    if existing is not None:
-        return
+    if occurrence is not None:
+        return occurrence, False
 
-    db.add(
-        Transaction(
+    occurrence = RecurringOccurrence(
+        user_id=entry.user_id,
+        recurring_entry_id=entry.id,
+        scheduled_date=scheduled_date,
+        amount=entry.amount,
+        status="pending",
+    )
+    db.add(occurrence)
+    db.flush()
+    return occurrence, True
+
+
+def _materialize_account_occurrence(
+    db: Session,
+    occurrence: RecurringOccurrence,
+    effective_date: date,
+) -> None:
+    entry = occurrence.entry
+    existing = None
+    if occurrence.transaction_id is not None:
+        existing = db.query(Transaction).filter(Transaction.id == occurrence.transaction_id).first()
+    if existing is None and effective_date == occurrence.scheduled_date:
+        existing = (
+            db.query(Transaction)
+            .filter(
+                Transaction.recurring_entry_id == entry.id,
+                Transaction.date == occurrence.scheduled_date,
+            )
+            .first()
+        )
+
+    if existing is None:
+        existing = Transaction(
             user_id=entry.user_id,
             account_id=entry.account_id,
             category_id=entry.category_id,
             type=entry.type,
-            amount=entry.amount,
+            amount=occurrence.amount,
             description=entry.description,
             category=entry.category,
-            date=occurrence_date,
+            date=effective_date,
             recurring_entry_id=entry.id,
         )
-    )
+        db.add(existing)
+        db.flush()
+
+    occurrence.transaction_id = existing.id
+    occurrence.status = "settled"
+    occurrence.settled_at = datetime.now(timezone.utc)
 
 
 def _materialize_card_occurrence(
     db: Session,
-    entry: RecurringEntry,
-    occurrence_date: date,
+    occurrence: RecurringOccurrence,
+    effective_date: date,
 ) -> None:
-    existing = (
-        db.query(CreditCardPurchase)
-        .filter(
-            CreditCardPurchase.recurring_entry_id == entry.id,
-            CreditCardPurchase.purchase_date == occurrence_date,
+    entry = occurrence.entry
+    existing = None
+    if occurrence.purchase_id is not None:
+        existing = db.query(CreditCardPurchase).filter(
+            CreditCardPurchase.id == occurrence.purchase_id
+        ).first()
+    if existing is None and effective_date == occurrence.scheduled_date:
+        existing = (
+            db.query(CreditCardPurchase)
+            .filter(
+                CreditCardPurchase.recurring_entry_id == entry.id,
+                CreditCardPurchase.purchase_date == occurrence.scheduled_date,
+            )
+            .first()
         )
-        .first()
-    )
-    if existing is not None:
-        return
 
-    amount = Decimal(str(entry.amount))
-    due_date = projected_card_due_date(entry, occurrence_date)
-    purchase = CreditCardPurchase(
-        user_id=entry.user_id,
-        credit_card_id=entry.credit_card_id,
-        category_id=entry.category_id,
-        description=entry.description,
-        total_amount=amount,
-        installments=1,
-        installment_amount=amount,
-        purchase_date=occurrence_date,
-        first_installment_date=due_date,
-        category=entry.category,
-        recurring_entry_id=entry.id,
-    )
-    db.add(purchase)
-    db.flush()
-    db.add(
-        Installment(
+    if existing is None:
+        amount = Decimal(str(occurrence.amount))
+        due_date = projected_card_due_date(entry, effective_date)
+        existing = CreditCardPurchase(
             user_id=entry.user_id,
-            purchase_id=purchase.id,
-            installment_number=1,
-            due_date=due_date,
-            amount=amount,
+            credit_card_id=entry.credit_card_id,
+            category_id=entry.category_id,
+            description=entry.description,
+            total_amount=amount,
+            installments=1,
+            installment_amount=amount,
+            purchase_date=effective_date,
+            first_installment_date=due_date,
+            category=entry.category,
+            recurring_entry_id=entry.id,
         )
-    )
+        db.add(existing)
+        db.flush()
+        db.add(
+            Installment(
+                user_id=entry.user_id,
+                purchase_id=existing.id,
+                installment_number=1,
+                due_date=due_date,
+                amount=amount,
+            )
+        )
+
+    occurrence.purchase_id = existing.id
+    occurrence.status = "settled"
+    occurrence.settled_at = datetime.now(timezone.utc)
+
+
+def settle_occurrence(
+    db: Session,
+    occurrence: RecurringOccurrence,
+    effective_date: date | None = None,
+) -> RecurringOccurrence:
+    """Materialize one pending occurrence as a real account/card movement."""
+    if occurrence.status == "settled":
+        return occurrence
+    if occurrence.status == "skipped":
+        raise ValueError("Skipped occurrences cannot be settled")
+
+    effective_date = effective_date or date.today()
+    if occurrence.entry.destination_type == "account":
+        _materialize_account_occurrence(db, occurrence, effective_date)
+    else:
+        _materialize_card_occurrence(db, occurrence, effective_date)
+    return occurrence
 
 
 def sync_recurring_entries(db: Session, user_id: uuid.UUID | str) -> int:
-    """Materialize all active recurring occurrences up to today, idempotently."""
+    """Create due occurrences and auto-settle entries configured as automatic."""
     today = date.today()
     entries = (
         db.query(RecurringEntry)
@@ -139,7 +205,7 @@ def sync_recurring_entries(db: Session, user_id: uuid.UUID | str) -> int:
         .all()
     )
 
-    generated = 0
+    changed_count = 0
     changed = False
     for entry in entries:
         if entry.last_generated_date is None:
@@ -153,22 +219,15 @@ def sync_recurring_entries(db: Session, user_id: uuid.UUID | str) -> int:
             if entry.end_date is not None and next_date > entry.end_date:
                 break
 
-            if entry.destination_type == "account":
-                before = db.query(Transaction.id).filter(
-                    Transaction.recurring_entry_id == entry.id,
-                    Transaction.date == next_date,
-                ).first()
-                _materialize_account_occurrence(db, entry, next_date)
-                if before is None:
-                    generated += 1
-            else:
-                before = db.query(CreditCardPurchase.id).filter(
-                    CreditCardPurchase.recurring_entry_id == entry.id,
-                    CreditCardPurchase.purchase_date == next_date,
-                ).first()
-                _materialize_card_occurrence(db, entry, next_date)
-                if before is None:
-                    generated += 1
+            occurrence, created = _get_or_create_occurrence(db, entry, next_date)
+            if created:
+                changed_count += 1
+                changed = True
+
+            if entry.settlement_mode == "automatic" and occurrence.status == "pending":
+                settle_occurrence(db, occurrence, effective_date=next_date)
+                changed_count += 1
+                changed = True
 
             entry.last_generated_date = next_date
             changed = True
@@ -176,4 +235,4 @@ def sync_recurring_entries(db: Session, user_id: uuid.UUID | str) -> int:
 
     if changed:
         db.commit()
-    return generated
+    return changed_count
