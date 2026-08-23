@@ -28,6 +28,16 @@ def test_occurrences_respect_window_and_end_date():
     ]
 
 
+def test_same_start_and_end_date_represents_one_time_entry():
+    entry = _entry(
+        start_date=date(2026, 8, 25),
+        end_date=date(2026, 8, 25),
+    )
+    assert occurrence_dates_between(entry, date(2026, 8, 1), date(2026, 12, 31)) == [
+        date(2026, 8, 25),
+    ]
+
+
 def test_inactive_entry_has_no_projected_occurrences():
     entry = _entry(active=False)
     assert occurrence_dates_between(entry, date(2026, 1, 1), date(2026, 12, 31)) == []
