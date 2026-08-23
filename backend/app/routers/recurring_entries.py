@@ -1,15 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models.account import Account
 from app.models.category import Category
 from app.models.credit_card import CreditCard
 from app.models.recurring_entry import RecurringEntry
+from app.models.recurring_occurrence import RecurringOccurrence
 from app.models.user import User
 from app.routers.deps import get_current_active_user
-from app.schemas.recurring_entry import RecurringEntryCreate, RecurringEntryRead, RecurringEntryUpdate
-from app.services.recurring_entry_service import sync_recurring_entries
+from app.schemas.recurring_entry import (
+    RecurringEntryCreate,
+    RecurringEntryRead,
+    RecurringEntryUpdate,
+    RecurringOccurrenceRead,
+    RecurringOccurrenceSettle,
+)
+from app.services.recurring_entry_service import settle_occurrence, sync_recurring_entries
 
 router = APIRouter(prefix="/recurring-entries", tags=["Recurring Entries"])
 
@@ -63,6 +72,84 @@ def create_recurring_entry(
     return entry
 
 
+@router.get("/occurrences/", response_model=list[RecurringOccurrenceRead])
+def list_recurring_occurrences(
+    occurrence_status: str | None = Query(default=None, alias="status", pattern="^(pending|settled|skipped)$"),
+    date_from: date | None = Query(default=None, alias="from"),
+    date_to: date | None = Query(default=None, alias="to"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    sync_recurring_entries(db, current_user.id)
+    query = (
+        db.query(RecurringOccurrence)
+        .options(joinedload(RecurringOccurrence.entry))
+        .filter(RecurringOccurrence.user_id == current_user.id)
+    )
+    if occurrence_status:
+        query = query.filter(RecurringOccurrence.status == occurrence_status)
+    if date_from:
+        query = query.filter(RecurringOccurrence.scheduled_date >= date_from)
+    if date_to:
+        query = query.filter(RecurringOccurrence.scheduled_date <= date_to)
+    return query.order_by(RecurringOccurrence.scheduled_date.desc()).all()
+
+
+@router.post("/occurrences/{occurrence_id}/settle", response_model=RecurringOccurrenceRead)
+def settle_recurring_occurrence(
+    occurrence_id: str,
+    payload: RecurringOccurrenceSettle,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    occurrence = (
+        db.query(RecurringOccurrence)
+        .options(
+            joinedload(RecurringOccurrence.entry).joinedload(RecurringEntry.credit_card),
+        )
+        .filter(
+            RecurringOccurrence.id == occurrence_id,
+            RecurringOccurrence.user_id == current_user.id,
+        )
+        .first()
+    )
+    if occurrence is None:
+        raise HTTPException(status_code=404, detail="Recurring occurrence not found")
+
+    try:
+        settle_occurrence(db, occurrence, effective_date=payload.effective_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(occurrence)
+    return occurrence
+
+
+@router.post("/occurrences/{occurrence_id}/skip", response_model=RecurringOccurrenceRead)
+def skip_recurring_occurrence(
+    occurrence_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    occurrence = (
+        db.query(RecurringOccurrence)
+        .options(joinedload(RecurringOccurrence.entry))
+        .filter(
+            RecurringOccurrence.id == occurrence_id,
+            RecurringOccurrence.user_id == current_user.id,
+        )
+        .first()
+    )
+    if occurrence is None:
+        raise HTTPException(status_code=404, detail="Recurring occurrence not found")
+    if occurrence.status == "settled":
+        raise HTTPException(status_code=409, detail="Settled occurrences cannot be skipped")
+    occurrence.status = "skipped"
+    db.commit()
+    db.refresh(occurrence)
+    return occurrence
+
+
 @router.put("/{entry_id}", response_model=RecurringEntryRead)
 def update_recurring_entry(
     entry_id: str,
@@ -83,6 +170,7 @@ def update_recurring_entry(
         "start_date": entry.start_date,
         "end_date": entry.end_date,
         "active": entry.active,
+        "settlement_mode": entry.settlement_mode,
         "destination_type": entry.destination_type,
         "account_id": entry.account_id,
         "credit_card_id": entry.credit_card_id,
@@ -91,8 +179,8 @@ def update_recurring_entry(
     validated = RecurringEntryCreate(**merged)
     category_name = _validate_references(db, current_user.id, validated)
 
-    # Already-materialized occurrences are financial history. Editing a rule
-    # changes only future occurrences, so we intentionally keep the cursor.
+    # Materialized and already-due occurrences are financial history. Editing
+    # the rule only changes occurrences that have not been generated yet.
     for field, value in validated.model_dump().items():
         setattr(entry, field, value)
     entry.category = category_name

@@ -5,6 +5,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const API_V1 = `${API_BASE}/api/v1`;
 
 export type RecurringDestinationType = "account" | "credit_card";
+export type RecurringSettlementMode = "automatic" | "manual";
+export type RecurringOccurrenceStatus = "pending" | "settled" | "skipped";
 
 export interface RecurringEntry {
   id: string;
@@ -17,6 +19,7 @@ export interface RecurringEntry {
   start_date: string;
   end_date: string | null;
   active: boolean;
+  settlement_mode: RecurringSettlementMode;
   destination_type: RecurringDestinationType;
   account_id: string | null;
   credit_card_id: string | null;
@@ -33,9 +36,23 @@ export interface RecurringEntryPayload {
   start_date: string;
   end_date?: string | null;
   active: boolean;
+  settlement_mode?: RecurringSettlementMode;
   destination_type: RecurringDestinationType;
   account_id?: string | null;
   credit_card_id?: string | null;
+}
+
+export interface RecurringOccurrence {
+  id: string;
+  recurring_entry_id: string;
+  scheduled_date: string;
+  amount: number;
+  status: RecurringOccurrenceStatus;
+  transaction_id: string | null;
+  purchase_id: string | null;
+  settled_at: string | null;
+  created_at: string;
+  entry: RecurringEntry;
 }
 
 async function recurringFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -75,4 +92,21 @@ export const recurringEntriesApi = {
     }),
   delete: (id: string) =>
     recurringFetch<void>(`/recurring-entries/${id}`, { method: "DELETE" }),
+  occurrences: (params?: { status?: RecurringOccurrenceStatus; from?: string; to?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.status) search.set("status", params.status);
+    if (params?.from) search.set("from", params.from);
+    if (params?.to) search.set("to", params.to);
+    const query = search.toString() ? `?${search.toString()}` : "";
+    return recurringFetch<RecurringOccurrence[]>(`/recurring-entries/occurrences/${query}`);
+  },
+  settleOccurrence: (id: string, effectiveDate?: string) =>
+    recurringFetch<RecurringOccurrence>(`/recurring-entries/occurrences/${id}/settle`, {
+      method: "POST",
+      body: JSON.stringify({ effective_date: effectiveDate || null }),
+    }),
+  skipOccurrence: (id: string) =>
+    recurringFetch<RecurringOccurrence>(`/recurring-entries/occurrences/${id}/skip`, {
+      method: "POST",
+    }),
 };
