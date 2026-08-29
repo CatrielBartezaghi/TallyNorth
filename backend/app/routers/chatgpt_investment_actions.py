@@ -183,12 +183,17 @@ def create_investment_asset_action(
                 ),
             )
         if payload.opening_current_value > 0 or payload.opening_invested_amount > 0:
+            initial_value = (
+                payload.opening_current_value
+                if payload.opening_current_value > 0
+                else payload.opening_invested_amount
+            )
             record_valuation(
                 db,
                 user_id=user_id,
                 investment=investment,
                 payload=InvestmentValuationCreate(
-                    value=payload.opening_current_value,
+                    value=initial_value,
                     valuation_date=opening_date,
                     source="chatgpt",
                     notes="Initial valuation",
