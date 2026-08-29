@@ -118,4 +118,7 @@ class ChatGPTSavingGoalAllocationResult(BaseModel):
 class ChatGPTSavingGoalWithAllocations(BaseModel):
     goal: SavingGoalRead
     tracking_mode: Literal["manual", "allocated"]
+    effective_current_amount: Decimal
+    progress_pct: Decimal
+    warnings: list[str] = Field(default_factory=list)
     allocations: list[SavingGoalAllocationRead]
