@@ -43,7 +43,7 @@ const EMPTY: InvestmentPayload = {
 const today = () => new Date().toISOString().slice(0, 10);
 
 function formatAmount(amount: number, currency: Currency | undefined, lang: Language) {
-  return `${currency?.symbol ?? "$"} ${amount.toLocaleString(lang === "es" ? "es-AR" : "en-US", { maximumFractionDigits: 2 })}`;
+  return `${currency?.symbol ?? "$"} ${Number(amount).toLocaleString(lang === "es" ? "es-AR" : "en-US", { maximumFractionDigits: 2 })}`;
 }
 
 export default function InvestmentsPage() {
