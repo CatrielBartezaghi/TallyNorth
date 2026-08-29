@@ -25,7 +25,7 @@ class InvestmentBase(BaseModel):
 
 
 class InvestmentCreate(InvestmentBase):
-    pass
+    opening_quantity: Decimal | None = Field(default=None, gt=0, max_digits=24, decimal_places=8)
 
 
 class InvestmentUpdate(BaseModel):
