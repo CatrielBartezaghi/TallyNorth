@@ -24,7 +24,7 @@ La versión 3 del contrato incluye flujo de caja, cuentas, recurrentes, inversio
 - `listInvestments`: cartera actual, costo, cantidad, valuación y resultado realizado.
 - `listInvestmentOperations`: historial de compras, ventas, dividendos, intereses y comisiones.
 - `listInvestmentValuations`: historial de valuaciones de una posición.
-- `listSavingGoals`: objetivos y asignaciones patrimoniales.
+- `listSavingGoals`: objetivos, asignaciones, modo de seguimiento y avance efectivo calculado.
 
 ## Escrituras
 
