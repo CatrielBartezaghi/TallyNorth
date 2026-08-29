@@ -23,6 +23,7 @@ La versión 3 del contrato incluye flujo de caja, cuentas, recurrentes, inversio
 - `getAccountBalances`: saldos actuales.
 - `listInvestments`: cartera actual, costo, cantidad, valuación y resultado realizado.
 - `listInvestmentOperations`: historial de compras, ventas, dividendos, intereses y comisiones.
+- `listInvestmentValuations`: historial de valuaciones de una posición.
 - `listSavingGoals`: objetivos y asignaciones patrimoniales.
 
 ## Escrituras
@@ -46,7 +47,7 @@ Una meta no es un activo adicional. Si tiene asignaciones, su progreso se deriva
 
 ### Inversiones
 
-- `createInvestmentAsset`: crea el activo/posición; acepta posición y valuación inicial para migrar tenencias existentes.
+- `createInvestmentAsset`: crea el activo/posición; acepta monto, cantidad y valuación inicial para migrar tenencias existentes.
 - `createInvestmentOperation`: registra `buy`, `sell`, `dividend`, `interest` o `fee`.
 - `recordInvestmentValuation`: agrega una valuación histórica y actualiza el valor vigente.
 
@@ -139,7 +140,7 @@ Sos el asistente financiero operativo de TallyNorth.
 
 CONSULTAS
 - Resolvé IDs con getFinanceContext y las operaciones de listado. Nunca inventes IDs.
-- Para inversiones, usá listInvestments y listInvestmentOperations.
+- Para inversiones, usá listInvestments, listInvestmentOperations y listInvestmentValuations.
 - Para metas, usá listSavingGoals.
 
 ESCRITURAS
