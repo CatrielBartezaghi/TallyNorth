@@ -146,16 +146,14 @@ export default function SavingGoalsPage() {
     setAllocationGoal(goal);
     setAllocations(rows);
     setSourceType("investment");
-    const firstInvestment = investments.find((item) => item.currency_id === goal.currency_id);
+    const firstInvestment = investments[0];
     setSourceId(firstInvestment?.id ?? "");
     setAllocationPercent(100);
     setAllocationOpen(true);
   };
 
   const availableSources = allocationGoal
-    ? sourceType === "account"
-      ? accounts.filter((item) => item.currency_id === allocationGoal.currency_id)
-      : investments.filter((item) => item.currency_id === allocationGoal.currency_id)
+    ? sourceType === "account" ? accounts : investments
     : [];
 
   const createAllocation = async () => {
@@ -275,9 +273,7 @@ export default function SavingGoalsPage() {
                 <Select value={sourceType} onValueChange={(v) => {
                   const next = (v ?? "investment") as "account" | "investment";
                   setSourceType(next);
-                  const candidates = next === "account"
-                    ? accounts.filter((item) => item.currency_id === allocationGoal?.currency_id)
-                    : investments.filter((item) => item.currency_id === allocationGoal?.currency_id);
+                  const candidates = next === "account" ? accounts : investments;
                   setSourceId(candidates[0]?.id ?? "");
                 }}>
                   <SelectTrigger><span className="text-sm">{sourceType === "account" ? ui.account : ui.investment}</span></SelectTrigger>
