@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.investment import (
     InvestmentOperationRead,
-    InvestmentOperationType,
     InvestmentRead,
     InvestmentType,
     InvestmentValuationRead,
