@@ -63,7 +63,8 @@ def _recompute_position(db: Session, investment: Investment) -> None:
         .all()
     )
     quantity = Decimal("0")
-    cost_basis = Decimal("0")
+    quantified_cost_basis = Decimal("0")
+    unquantified_cost_basis = Decimal("0")
     realized_gain = Decimal("0")
 
     for operation in operations:
@@ -72,32 +73,46 @@ def _recompute_position(db: Session, investment: Investment) -> None:
         op_quantity = _decimal(operation.quantity) if operation.quantity is not None else None
 
         if operation.type in {"opening", "buy"}:
-            cost_basis += amount + fee
             if op_quantity is not None:
+                quantified_cost_basis += amount + fee
                 quantity += op_quantity
+            else:
+                unquantified_cost_basis += amount + fee
         elif operation.type == "sell":
             proceeds = amount - fee
-            if op_quantity is not None and quantity > 0:
-                if op_quantity > quantity:
-                    raise ValueError("Sell quantity exceeds current position")
-                average_cost = cost_basis / quantity if quantity else Decimal("0")
+            if op_quantity is not None:
+                if quantity <= 0 or op_quantity > quantity:
+                    raise ValueError("Sell quantity exceeds current quantified position")
+                average_cost = quantified_cost_basis / quantity
                 removed_cost = average_cost * op_quantity
                 quantity -= op_quantity
-                cost_basis -= removed_cost
+                quantified_cost_basis -= removed_cost
                 realized_gain += proceeds - removed_cost
             else:
-                removed_cost = min(cost_basis, amount)
-                cost_basis -= removed_cost
+                # Amount-only positions (funds/fixed income) reduce their own open cost first.
+                removed_cost = min(unquantified_cost_basis, amount)
+                unquantified_cost_basis -= removed_cost
+                remainder = amount - removed_cost
+                if remainder > 0 and quantified_cost_basis > 0:
+                    quantified_removed = min(quantified_cost_basis, remainder)
+                    quantified_cost_basis -= quantified_removed
+                    removed_cost += quantified_removed
                 realized_gain += proceeds - removed_cost
         elif operation.type in {"dividend", "interest"}:
             realized_gain += amount - fee
         elif operation.type == "fee":
             realized_gain -= amount
 
-    investment.invested_amount = _money(max(cost_basis, Decimal("0")))
+    cost_basis = max(
+        quantified_cost_basis + unquantified_cost_basis,
+        Decimal("0"),
+    )
+    investment.invested_amount = _money(cost_basis)
     investment.quantity = _quantity(max(quantity, Decimal("0")))
     investment.average_cost = (
-        _price(cost_basis / quantity) if quantity > 0 else None
+        _price(quantified_cost_basis / quantity)
+        if quantity > 0 and quantified_cost_basis > 0
+        else None
     )
     investment.realized_gain = _money(realized_gain)
 
