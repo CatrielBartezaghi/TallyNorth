@@ -22,6 +22,7 @@ ALLOWED_OPERATION_IDS = {
     "updateSavingGoalProgress",
     "listInvestments",
     "listInvestmentOperations",
+    "listInvestmentValuations",
     "listSavingGoals",
     "createInvestmentAsset",
     "createInvestmentOperation",
