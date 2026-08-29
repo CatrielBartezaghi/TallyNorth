@@ -33,6 +33,12 @@ class ChatGPTInvestmentAssetCreate(BaseModel):
     expected_return_rate: Decimal | None = None
     notes: str | None = Field(default=None, max_length=255)
 
+    @model_validator(mode="after")
+    def validate_opening_quantity(self):
+        if self.opening_quantity is not None and self.opening_invested_amount <= 0:
+            raise ValueError("opening_quantity requires a positive opening_invested_amount")
+        return self
+
 
 class ChatGPTInvestmentAssetResult(BaseModel):
     status: ActionStatus
