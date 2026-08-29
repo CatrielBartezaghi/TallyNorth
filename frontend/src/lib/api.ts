@@ -187,7 +187,6 @@ export interface Investment {
   type: InvestmentType;
   currency_id: string;
   invested_amount: number;
-  opening_quantity?: number | null;
   current_value: number;
   quantity: number;
   average_cost: number | null;
@@ -357,11 +356,12 @@ export interface InvestmentPayload {
   type: InvestmentType;
   currency_id: string;
   invested_amount: number;
+  opening_quantity?: number | null;
   current_value: number;
   expected_return_rate: number | null;
   notes: string | null;
 }
-export type InvestmentUpdatePayload = Partial<Omit<InvestmentPayload, "invested_amount" | "current_value">>;
+export type InvestmentUpdatePayload = Partial<Omit<InvestmentPayload, "invested_amount" | "opening_quantity" | "current_value">>;
 export interface InvestmentOperationPayload {
   type: InvestmentOperationType;
   account_id?: string | null;
