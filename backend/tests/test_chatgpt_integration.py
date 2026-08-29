@@ -94,6 +94,7 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
                 "updateSavingGoalProgress",
                 "listInvestments",
                 "listInvestmentOperations",
+                "listInvestmentValuations",
                 "listSavingGoals",
                 "createInvestmentAsset",
                 "createInvestmentOperation",
