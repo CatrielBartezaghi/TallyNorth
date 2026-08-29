@@ -28,6 +28,8 @@ from app.schemas.investment import (
     InvestmentValuationCreate,
     InvestmentValuationRead,
 )
+from app.services.account_balance_service import get_account_current_balance
+from app.services.dashboard_service import Converter
 from app.services.gpt_action_idempotency import action_request_hash, find_action_request, record_action_request
 from app.services.integration_tokens import IntegrationPrincipal
 from app.services.investment_service import create_operation, get_owned_investment, record_valuation
@@ -144,25 +146,51 @@ def list_saving_goals_action(
         .order_by(SavingGoal.created_at.desc())
         .all()
     )
-    return [
-        ChatGPTSavingGoalWithAllocations(
-            goal=goal,
-            tracking_mode=(
-                "allocated"
-                if db.query(SavingGoalAllocation)
-                .filter(SavingGoalAllocation.saving_goal_id == goal.id)
-                .first()
-                else "manual"
-            ),
-            allocations=(
-                db.query(SavingGoalAllocation)
-                .filter(SavingGoalAllocation.saving_goal_id == goal.id)
-                .order_by(SavingGoalAllocation.created_at.asc())
-                .all()
-            ),
+    result = []
+    for goal in goals:
+        allocations = (
+            db.query(SavingGoalAllocation)
+            .filter(SavingGoalAllocation.saving_goal_id == goal.id)
+            .order_by(SavingGoalAllocation.created_at.asc())
+            .all()
         )
-        for goal in goals
-    ]
+        warnings: list[str] = []
+        if allocations:
+            tracking_mode = "allocated"
+            converter = Converter(db, goal.currency.code, date.today())
+            effective_current = Decimal("0")
+            for allocation in allocations:
+                if allocation.account is not None:
+                    source_value = get_account_current_balance(db, allocation.account)
+                    source_currency = allocation.account.currency
+                else:
+                    source_value = Decimal(str(allocation.investment.current_value))
+                    source_currency = allocation.investment.currency
+                converted = converter.convert(source_value, source_currency)
+                if converted is not None:
+                    effective_current += converted * Decimal(str(allocation.allocation_percent)) / Decimal("100")
+            warnings.extend(converter.warnings)
+        else:
+            tracking_mode = "manual"
+            effective_current = Decimal(str(goal.current_amount))
+
+        target = Decimal(str(goal.target_amount))
+        progress_pct = (
+            min((effective_current / target) * Decimal("100"), Decimal("100"))
+            if target > 0
+            else Decimal("0")
+        )
+        result.append(
+            ChatGPTSavingGoalWithAllocations(
+                goal=goal,
+                tracking_mode=tracking_mode,
+                effective_current_amount=effective_current.quantize(Decimal("0.01")),
+                progress_pct=progress_pct.quantize(Decimal("0.01")),
+                warnings=warnings,
+                allocations=allocations,
+            )
+        )
+    return result
 
 
 @router.post(
