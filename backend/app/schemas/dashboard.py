@@ -50,6 +50,8 @@ class InvestmentPerformancePoint(BaseModel):
     type: str
     invested_amount: Decimal
     current_value: Decimal
+    realized_gain: Decimal
+    unrealized_gain: Decimal
     gain: Decimal
     return_pct: Decimal
     converted_current_value: Decimal | None
@@ -78,6 +80,7 @@ class BudgetVsActualPoint(BaseModel):
 class SavingGoalPoint(BaseModel):
     goal_id: str
     name: str
+    tracking_mode: str
     current_amount: Decimal
     target_amount: Decimal
     converted_current_amount: Decimal | None
