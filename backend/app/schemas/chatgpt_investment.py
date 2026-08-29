@@ -27,6 +27,7 @@ class ChatGPTInvestmentAssetCreate(BaseModel):
     type: InvestmentType = "other"
     currency_id: uuid.UUID
     opening_invested_amount: Decimal = Field(default=Decimal("0.00"), ge=0)
+    opening_quantity: Decimal | None = Field(default=None, gt=0, max_digits=24, decimal_places=8)
     opening_current_value: Decimal = Field(default=Decimal("0.00"), ge=0)
     opening_date: date | None = None
     expected_return_rate: Decimal | None = None
