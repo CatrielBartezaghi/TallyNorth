@@ -14,6 +14,7 @@ from app.models.purchase import CreditCardPurchase
 from app.models.recurring_entry import RecurringEntry
 from app.models.saving_goal import SavingGoal
 from app.models.transaction import Transaction
+from app.schemas.investment import InvestmentOperationCreate, InvestmentValuationCreate
 from app.schemas.integration import (
     ChatGPTBatchPurchaseCreate,
     ChatGPTBatchTransactionCreate,
@@ -29,6 +30,7 @@ from app.schemas.integration import (
     ChatGPTSavingGoalProgressUpdate,
     ChatGPTTransactionCreate,
 )
+from app.services.investment_service import create_operation, record_valuation
 from app.services.installment_service import (
     compute_first_installment_date,
     compute_installment_amount,
@@ -406,19 +408,55 @@ def create_chatgpt_investment(
     user_id,
     payload: ChatGPTInvestmentCreate,
 ) -> Investment:
+    """Compatibility path for the pre-ledger ChatGPT action.
+
+    New GPT contracts use createInvestmentAsset. Keeping this path ledger-backed
+    prevents internal/legacy callers from creating snapshot-only investments.
+    """
     _get_currency(db, payload.currency_id)
     investment = Investment(
         user_id=user_id,
         name=payload.name,
         type=payload.type,
         currency_id=payload.currency_id,
-        invested_amount=payload.invested_amount,
-        current_value=payload.current_value,
+        invested_amount=0,
+        current_value=0,
         expected_return_rate=payload.expected_return_rate,
         notes=payload.notes,
     )
     db.add(investment)
     db.flush()
+
+    if payload.invested_amount > 0:
+        create_operation(
+            db,
+            user_id=user_id,
+            investment=investment,
+            payload=InvestmentOperationCreate(
+                type="opening",
+                amount=payload.invested_amount,
+                date=date.today(),
+                notes="Opening position from compatibility ChatGPT action",
+            ),
+        )
+
+    if payload.current_value > 0 or payload.invested_amount > 0:
+        initial_value = (
+            payload.current_value
+            if payload.current_value > 0
+            else payload.invested_amount
+        )
+        record_valuation(
+            db,
+            user_id=user_id,
+            investment=investment,
+            payload=InvestmentValuationCreate(
+                value=initial_value,
+                valuation_date=date.today(),
+                source="chatgpt-compat",
+                notes="Initial valuation from compatibility action",
+            ),
+        )
     return investment
 
 
@@ -444,8 +482,17 @@ def update_chatgpt_investment_value(
         raise ActionConflictError(
             f"Investment changed; current value is {_decimal(investment.current_value)}"
         )
-    investment.current_value = payload.new_current_value
-    db.flush()
+    record_valuation(
+        db,
+        user_id=user_id,
+        investment=investment,
+        payload=InvestmentValuationCreate(
+            value=payload.new_current_value,
+            valuation_date=date.today(),
+            source="chatgpt-compat",
+            notes="Valuation from compatibility ChatGPT action",
+        ),
+    )
     return investment
 
 

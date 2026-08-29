@@ -14,12 +14,13 @@ from app.models.credit_card import CreditCard
 from app.models.currency import Currency
 from app.models.installment import Installment
 from app.models.integration_token import IntegrationToken
-from app.models.investment import Investment
+from app.models.investment import Investment, InvestmentOperation, InvestmentValuation
 from app.models.purchase import CreditCardPurchase
-from app.models.saving_goal import SavingGoal
+from app.models.saving_goal import SavingGoal, SavingGoalAllocation
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.integration import IntegrationTokenCreate
+from app.services.account_balance_service import get_account_current_balance
 from app.services.auth import create_access_token
 from app.services.integration_tokens import create_integration_token
 
@@ -425,6 +426,161 @@ class ChatGPTActionsIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(projection.status_code, 200, projection.text)
         self.assertEqual(len(projection.json()["months"]), 3)
+
+    def test_07_investment_ledger_moves_cash_without_expense_duplication(self):
+        baseline = get_account_current_balance(self.db, self.account)
+
+        created = self.client.post(
+            "/api/v1/integrations/chatgpt/investment-assets",
+            headers=self.headers,
+            json={
+                "idempotency_key": "integration-ledger-asset-0001",
+                "name": "Ledger Investment",
+                "symbol": "LEDGER",
+                "broker": "Test Broker",
+                "type": "stock",
+                "currency_id": str(self.currency.id),
+                "opening_invested_amount": 0,
+                "opening_current_value": 0,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        investment_id = created.json()["investment"]["id"]
+
+        buy_payload = {
+            "idempotency_key": "integration-ledger-buy-0001",
+            "investment_id": investment_id,
+            "type": "buy",
+            "account_id": str(self.account.id),
+            "quantity": 10,
+            "unit_price": 100,
+            "amount": 1000,
+            "fee": 0,
+            "date": "2026-08-29",
+        }
+        buy = self.client.post(
+            "/api/v1/integrations/chatgpt/investment-operations",
+            headers=self.headers,
+            json=buy_payload,
+        )
+        repeated_buy = self.client.post(
+            "/api/v1/integrations/chatgpt/investment-operations",
+            headers=self.headers,
+            json=buy_payload,
+        )
+        self.assertEqual(buy.status_code, 200, buy.text)
+        self.assertEqual(repeated_buy.status_code, 200, repeated_buy.text)
+        self.assertEqual(repeated_buy.json()["status"], "already_processed")
+        self.assertEqual(get_account_current_balance(self.db, self.account), baseline - 1000)
+
+        valuation = self.client.post(
+            "/api/v1/integrations/chatgpt/investment-valuation-records",
+            headers=self.headers,
+            json={
+                "idempotency_key": "integration-ledger-value-0001",
+                "investment_id": investment_id,
+                "value": 1200,
+                "valuation_date": "2026-08-29",
+                "source": "integration-test",
+            },
+        )
+        self.assertEqual(valuation.status_code, 200, valuation.text)
+
+        dividend = self.client.post(
+            "/api/v1/integrations/chatgpt/investment-operations",
+            headers=self.headers,
+            json={
+                "idempotency_key": "integration-ledger-dividend-0001",
+                "investment_id": investment_id,
+                "type": "dividend",
+                "account_id": str(self.account.id),
+                "amount": 50,
+                "fee": 0,
+                "date": "2026-08-29",
+            },
+        )
+        self.assertEqual(dividend.status_code, 200, dividend.text)
+        self.assertEqual(get_account_current_balance(self.db, self.account), baseline - 950)
+
+        sell = self.client.post(
+            "/api/v1/integrations/chatgpt/investment-operations",
+            headers=self.headers,
+            json={
+                "idempotency_key": "integration-ledger-sell-0001",
+                "investment_id": investment_id,
+                "type": "sell",
+                "account_id": str(self.account.id),
+                "quantity": 2,
+                "unit_price": 130,
+                "amount": 260,
+                "fee": 0,
+                "date": "2026-08-29",
+            },
+        )
+        self.assertEqual(sell.status_code, 200, sell.text)
+        self.assertEqual(get_account_current_balance(self.db, self.account), baseline - 690)
+
+        investment = self.db.query(Investment).filter(Investment.id == investment_id).one()
+        self.assertEqual(str(investment.quantity), "8.00000000")
+        self.assertEqual(str(investment.invested_amount), "800.00")
+        self.assertEqual(str(investment.realized_gain), "110.00")
+
+        listed = self.client.get(
+            "/api/v1/integrations/chatgpt/investment-operations",
+            headers=self.headers,
+            params={"investment_id": investment_id},
+        )
+        self.assertEqual(listed.status_code, 200, listed.text)
+        self.assertEqual(len(listed.json()), 3)
+
+        goal = self.client.post(
+            "/api/v1/integrations/chatgpt/saving-goals",
+            headers=self.headers,
+            json={
+                "idempotency_key": "integration-ledger-goal-0001",
+                "name": "Ledger Goal",
+                "currency_id": str(self.currency.id),
+                "target_amount": 5000,
+                "current_amount": 0,
+            },
+        )
+        self.assertEqual(goal.status_code, 200, goal.text)
+        goal_id = goal.json()["saving_goal"]["id"]
+
+        allocation = self.client.post(
+            "/api/v1/integrations/chatgpt/saving-goal-allocations",
+            headers=self.headers,
+            json={
+                "idempotency_key": "integration-ledger-allocation-0001",
+                "saving_goal_id": goal_id,
+                "investment_id": investment_id,
+                "allocation_percent": 50,
+            },
+        )
+        self.assertEqual(allocation.status_code, 200, allocation.text)
+
+        self.assertEqual(
+            self.db.query(InvestmentOperation).filter(InvestmentOperation.investment_id == investment_id).count(),
+            3,
+        )
+        self.assertEqual(
+            self.db.query(InvestmentValuation).filter(InvestmentValuation.investment_id == investment_id).count(),
+            1,
+        )
+        self.assertEqual(
+            self.db.query(SavingGoalAllocation).filter(SavingGoalAllocation.saving_goal_id == goal_id).count(),
+            1,
+        )
+
+        goals = self.client.get(
+            "/api/v1/integrations/chatgpt/saving-goals",
+            headers=self.headers,
+        )
+        self.assertEqual(goals.status_code, 200, goals.text)
+        ledger_goal = next(item for item in goals.json() if item["goal"]["id"] == goal_id)
+        self.assertEqual(ledger_goal["tracking_mode"], "allocated")
+        self.assertEqual(Decimal(ledger_goal["effective_current_amount"]), Decimal("470.00"))
+        self.assertEqual(Decimal(ledger_goal["progress_pct"]), Decimal("9.40"))
 
     def test_99_revoked_token_is_rejected(self):
         token = (

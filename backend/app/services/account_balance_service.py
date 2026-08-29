@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.account import Account
 from app.models.installment import Installment
+from app.models.investment import InvestmentOperation
 from app.models.transaction import Transaction
 
 
@@ -32,10 +33,29 @@ def get_account_current_balance(db: Session, account: Account) -> Decimal:
         Installment.is_paid.is_(True),
     ).scalar()
 
+    investment_operations = (
+        db.query(InvestmentOperation)
+        .filter(InvestmentOperation.account_id == account.id)
+        .all()
+    )
+    investment_cash_delta = Decimal("0")
+    for operation in investment_operations:
+        amount = _decimal(operation.amount)
+        fee = _decimal(operation.fee)
+        if operation.type == "buy":
+            investment_cash_delta -= amount + fee
+        elif operation.type == "sell":
+            investment_cash_delta += amount - fee
+        elif operation.type in {"dividend", "interest"}:
+            investment_cash_delta += amount - fee
+        elif operation.type == "fee":
+            investment_cash_delta -= amount
+
     return (
         _decimal(account.initial_balance)
         + _decimal(transaction_total)
         - _decimal(paid_installments_total)
+        + investment_cash_delta
     )
 
 

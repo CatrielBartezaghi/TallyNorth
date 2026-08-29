@@ -36,6 +36,7 @@ export type TransactionType = "income" | "expense";
 export type RecurrenceRule = "monthly" | "weekly" | "yearly";
 export type CategoryType = "income" | "expense" | "both";
 export type InvestmentType = "fixed_income" | "fund" | "stock" | "crypto" | "forex" | "other";
+export type InvestmentOperationType = "opening" | "buy" | "sell" | "dividend" | "interest" | "fee";
 
 export interface Currency {
   id: string;
@@ -169,17 +170,56 @@ export interface SavingGoal {
   currency: Currency;
 }
 
+export interface SavingGoalAllocation {
+  id: string;
+  saving_goal_id: string;
+  account_id: string | null;
+  investment_id: string | null;
+  allocation_percent: number;
+  created_at: string;
+}
+
 export interface Investment {
   id: string;
   name: string;
+  symbol: string | null;
+  broker: string | null;
   type: InvestmentType;
   currency_id: string;
   invested_amount: number;
   current_value: number;
+  quantity: number;
+  average_cost: number | null;
+  realized_gain: number;
   expected_return_rate: number | null;
   notes: string | null;
   created_at: string;
+  updated_at: string;
   currency: Currency;
+}
+
+export interface InvestmentOperation {
+  id: string;
+  investment_id: string;
+  type: InvestmentOperationType;
+  account_id: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  amount: number;
+  fee: number;
+  date: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface InvestmentValuation {
+  id: string;
+  investment_id: string;
+  value: number;
+  valuation_date: string;
+  source: string;
+  notes: string | null;
+  created_at: string;
 }
 
 export interface ExchangeRate {
@@ -236,6 +276,8 @@ export interface FullDashboardSummary {
     type: InvestmentType;
     invested_amount: number;
     current_value: number;
+    realized_gain: number;
+    unrealized_gain: number;
     gain: number;
     return_pct: number;
     converted_current_value: number | null;
@@ -261,6 +303,7 @@ export interface FullDashboardSummary {
   saving_goals: {
     goal_id: string;
     name: string;
+    tracking_mode: string;
     current_amount: number;
     target_amount: number;
     converted_current_amount: number | null;
@@ -306,7 +349,35 @@ export type PurchaseUpdatePayload = Partial<PurchasePayload>;
 export type CategoryPayload = Omit<Category, "id" | "created_at">;
 export type BudgetPayload = Omit<Budget, "id" | "created_at" | "category" | "currency">;
 export type SavingGoalPayload = Omit<SavingGoal, "id" | "created_at" | "currency">;
-export type InvestmentPayload = Omit<Investment, "id" | "created_at" | "currency">;
+export interface InvestmentPayload {
+  name: string;
+  symbol?: string | null;
+  broker?: string | null;
+  type: InvestmentType;
+  currency_id: string;
+  invested_amount: number;
+  opening_quantity?: number | null;
+  current_value: number;
+  expected_return_rate: number | null;
+  notes: string | null;
+}
+export type InvestmentUpdatePayload = Partial<Omit<InvestmentPayload, "invested_amount" | "opening_quantity" | "current_value">>;
+export interface InvestmentOperationPayload {
+  type: InvestmentOperationType;
+  account_id?: string | null;
+  quantity?: number | null;
+  unit_price?: number | null;
+  amount: number;
+  fee?: number;
+  date: string;
+  notes?: string | null;
+}
+export interface InvestmentValuationPayload {
+  value: number;
+  valuation_date: string;
+  source?: string;
+  notes?: string | null;
+}
 export type ExchangeRatePayload = Omit<ExchangeRate, "id" | "created_at" | "from_currency" | "to_currency">;
 
 export const currenciesApi = {
@@ -416,6 +487,11 @@ export const savingGoalsApi = {
   update: (id: string, data: Partial<SavingGoalPayload>) =>
     apiFetch<SavingGoal>(`/saving-goals/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => apiFetch<void>(`/saving-goals/${id}`, { method: "DELETE" }),
+  listAllocations: (id: string) => apiFetch<SavingGoalAllocation[]>(`/saving-goals/${id}/allocations`),
+  createAllocation: (id: string, data: { account_id?: string | null; investment_id?: string | null; allocation_percent: number }) =>
+    apiFetch<SavingGoalAllocation>(`/saving-goals/${id}/allocations`, { method: "POST", body: JSON.stringify(data) }),
+  deleteAllocation: (id: string, allocationId: string) =>
+    apiFetch<void>(`/saving-goals/${id}/allocations/${allocationId}`, { method: "DELETE" }),
 };
 
 export const investmentsApi = {
@@ -423,9 +499,15 @@ export const investmentsApi = {
   get: (id: string) => apiFetch<Investment>(`/investments/${id}`),
   create: (data: InvestmentPayload) =>
     apiFetch<Investment>("/investments/", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: string, data: Partial<InvestmentPayload>) =>
+  update: (id: string, data: InvestmentUpdatePayload) =>
     apiFetch<Investment>(`/investments/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: string) => apiFetch<void>(`/investments/${id}`, { method: "DELETE" }),
+  listOperations: (id: string) => apiFetch<InvestmentOperation[]>(`/investments/${id}/operations`),
+  addOperation: (id: string, data: InvestmentOperationPayload) =>
+    apiFetch<InvestmentOperation>(`/investments/${id}/operations`, { method: "POST", body: JSON.stringify(data) }),
+  listValuations: (id: string) => apiFetch<InvestmentValuation[]>(`/investments/${id}/valuations`),
+  addValuation: (id: string, data: InvestmentValuationPayload) =>
+    apiFetch<InvestmentValuation>(`/investments/${id}/valuations`, { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const exchangeRatesApi = {

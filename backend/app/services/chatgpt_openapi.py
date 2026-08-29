@@ -18,6 +18,16 @@ ALLOWED_OPERATION_IDS = {
     "createFinanceEntriesBatch",
     "setAccountBalance",
     "createCategory",
+    "createSavingGoal",
+    "updateSavingGoalProgress",
+    "listInvestments",
+    "listInvestmentOperations",
+    "listInvestmentValuations",
+    "listSavingGoals",
+    "createInvestmentAsset",
+    "createInvestmentOperation",
+    "recordInvestmentValuation",
+    "allocateSavingGoal",
 }
 
 
@@ -110,10 +120,10 @@ def build_chatgpt_action_openapi(
         "info": {
             "title": "TallyNorth GPT Actions",
             "description": (
-                "Consulta finanzas y registra movimientos, recurrentes, compras, "
-                "categorías y ajustes de saldo confirmados para el usuario autenticado."
+                "Consulta finanzas, inversiones y objetivos; registra movimientos, "
+                "operaciones de cartera, valuaciones y cambios confirmados para el usuario autenticado."
             ),
-            "version": "2.0.0",
+            "version": "3.0.0",
         },
         "servers": [{"url": server_url.rstrip("/")}],
         "security": [{"bearerAuth": []}],

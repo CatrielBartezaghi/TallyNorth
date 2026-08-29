@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.currency import CurrencyRead
 
@@ -38,3 +38,24 @@ class SavingGoalRead(SavingGoalBase):
     created_at: datetime
     currency: CurrencyRead
 
+
+class SavingGoalAllocationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID | None = None
+    investment_id: uuid.UUID | None = None
+    allocation_percent: Decimal = Field(default=Decimal("100.00"), gt=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if (self.account_id is None) == (self.investment_id is None):
+            raise ValueError("exactly one of account_id or investment_id is required")
+        return self
+
+
+class SavingGoalAllocationRead(SavingGoalAllocationCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    saving_goal_id: uuid.UUID
+    created_at: datetime
