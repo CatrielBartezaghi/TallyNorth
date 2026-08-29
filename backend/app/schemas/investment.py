@@ -27,6 +27,12 @@ class InvestmentBase(BaseModel):
 class InvestmentCreate(InvestmentBase):
     opening_quantity: Decimal | None = Field(default=None, gt=0, max_digits=24, decimal_places=8)
 
+    @model_validator(mode="after")
+    def validate_opening_quantity(self):
+        if self.opening_quantity is not None and self.invested_amount <= 0:
+            raise ValueError("opening_quantity requires a positive invested_amount")
+        return self
+
 
 class InvestmentUpdate(BaseModel):
     name: str | None = None
