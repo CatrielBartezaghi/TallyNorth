@@ -117,4 +117,5 @@ class ChatGPTSavingGoalAllocationResult(BaseModel):
 
 class ChatGPTSavingGoalWithAllocations(BaseModel):
     goal: SavingGoalRead
+    tracking_mode: Literal["manual", "allocated"]
     allocations: list[SavingGoalAllocationRead]
