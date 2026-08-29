@@ -299,7 +299,7 @@ export default function InvestmentsPage() {
             ) : items.length === 0 ? (
               <TableRow><TableCell colSpan={8}>{t.investments.noInvestments}</TableCell></TableRow>
             ) : items.map((item) => {
-              const gain = item.current_value - item.invested_amount + item.realized_gain;
+              const gain = Number(item.current_value) - Number(item.invested_amount) + Number(item.realized_gain);
               return (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">
