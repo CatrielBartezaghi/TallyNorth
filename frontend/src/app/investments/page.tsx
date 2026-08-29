@@ -35,6 +35,7 @@ const EMPTY: InvestmentPayload = {
   type: "other",
   currency_id: "",
   invested_amount: 0,
+  opening_quantity: null,
   current_value: 0,
   expected_return_rate: null,
   notes: "",
@@ -156,6 +157,7 @@ export default function InvestmentsPage() {
       type: item.type,
       currency_id: item.currency_id,
       invested_amount: item.invested_amount,
+      opening_quantity: item.quantity || null,
       current_value: item.current_value,
       expected_return_rate: item.expected_return_rate,
       notes: item.notes ?? "",
@@ -179,6 +181,7 @@ export default function InvestmentsPage() {
         ...form,
         symbol: form.symbol || null,
         broker: form.broker || null,
+        opening_quantity: form.opening_quantity || null,
         notes: form.notes || null,
       });
     }
@@ -352,8 +355,9 @@ export default function InvestmentsPage() {
             {!editing ? (
               <>
                 <p className="text-xs text-muted-foreground">{ui.openingHint}</p>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <Field label={t.investments.invested}><Input type="number" min="0" step="0.01" value={form.invested_amount || ""} onChange={(e) => setForm({ ...form, invested_amount: parseFloat(e.target.value) || 0 })} /></Field>
+                  <Field label={ui.quantity}><Input type="number" min="0" step="0.00000001" value={form.opening_quantity ?? ""} onChange={(e) => setForm({ ...form, opening_quantity: e.target.value ? parseFloat(e.target.value) : null })} /></Field>
                   <Field label={t.investments.currentValue}><Input type="number" min="0" step="0.01" value={form.current_value || ""} onChange={(e) => setForm({ ...form, current_value: parseFloat(e.target.value) || 0 })} /></Field>
                   <Field label={t.investments.expectedRate}><Input type="number" step="0.01" value={form.expected_return_rate ?? ""} onChange={(e) => setForm({ ...form, expected_return_rate: e.target.value ? parseFloat(e.target.value) : null })} /></Field>
                 </div>
