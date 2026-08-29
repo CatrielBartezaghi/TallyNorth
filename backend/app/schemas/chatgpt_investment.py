@@ -44,7 +44,7 @@ class ChatGPTInvestmentOperationCreate(BaseModel):
 
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
     investment_id: uuid.UUID
-    type: InvestmentOperationType
+    type: Literal["buy", "sell", "dividend", "interest", "fee"]
     account_id: uuid.UUID | None = None
     quantity: Decimal | None = Field(default=None, gt=0)
     unit_price: Decimal | None = Field(default=None, gt=0)
