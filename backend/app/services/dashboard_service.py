@@ -11,11 +11,12 @@ from app.models.category import Category
 from app.models.currency import Currency
 from app.models.exchange_rate import ExchangeRate
 from app.models.installment import Installment
-from app.models.investment import Investment
+from app.models.investment import Investment, InvestmentOperation
 from app.models.purchase import CreditCardPurchase
 from app.models.recurring_entry import RecurringEntry
-from app.models.saving_goal import SavingGoal
+from app.models.saving_goal import SavingGoal, SavingGoalAllocation
 from app.models.transaction import Transaction
+from app.services.account_balance_service import get_account_current_balance
 from app.services.recurring_entry_service import occurrence_dates_between, projected_card_due_date
 
 
@@ -184,8 +185,45 @@ def build_dashboard_summary(
                     expenses += converted
         return _q(income), _q(expenses)
 
+    investment_operations = (
+        db.query(InvestmentOperation)
+        .options(joinedload(InvestmentOperation.investment).joinedload(Investment.currency))
+        .filter(
+            InvestmentOperation.user_id == user_id,
+            InvestmentOperation.date >= previous_from,
+            InvestmentOperation.date <= date_to,
+        )
+        .all()
+    )
+
+    def investment_period_totals(start: date, end: date) -> tuple[Decimal, Decimal]:
+        investment_income = Decimal("0")
+        investment_expenses = Decimal("0")
+        for operation in investment_operations:
+            if not (start <= operation.date <= end):
+                continue
+            if operation.type in {"dividend", "interest"}:
+                converted = converter.convert(
+                    _decimal(operation.amount) - _decimal(operation.fee),
+                    operation.investment.currency,
+                )
+                if converted is not None:
+                    investment_income += converted
+            elif operation.type == "fee":
+                converted = converter.convert(operation.amount, operation.investment.currency)
+                if converted is not None:
+                    investment_expenses += converted
+        return _q(investment_income), _q(investment_expenses)
+
     income, expenses = period_totals(date_from, date_to)
+    inv_income, inv_expenses = investment_period_totals(date_from, date_to)
+    income = _q(income + inv_income)
+    expenses = _q(expenses + inv_expenses)
+
     previous_income, previous_expenses = period_totals(previous_from, previous_to)
+    prev_inv_income, prev_inv_expenses = investment_period_totals(previous_from, previous_to)
+    previous_income = _q(previous_income + prev_inv_income)
+    previous_expenses = _q(previous_expenses + prev_inv_expenses)
     net = _q(income - expenses)
     previous_net = _q(previous_income - previous_expenses)
 
@@ -211,6 +249,21 @@ def build_dashboard_summary(
             )
             if converted is not None:
                 key = f"{installment.due_date.year:04d}-{installment.due_date.month:02d}"
+                monthly_map[key]["expenses"] += converted
+    for operation in investment_operations:
+        if not (date_from <= operation.date <= date_to):
+            continue
+        key = f"{operation.date.year:04d}-{operation.date.month:02d}"
+        if operation.type in {"dividend", "interest"}:
+            converted = converter.convert(
+                _decimal(operation.amount) - _decimal(operation.fee),
+                operation.investment.currency,
+            )
+            if converted is not None:
+                monthly_map[key]["income"] += converted
+        elif operation.type == "fee":
+            converted = converter.convert(operation.amount, operation.investment.currency)
+            if converted is not None:
                 monthly_map[key]["expenses"] += converted
 
     future_from = max(date_from, date.today() + timedelta(days=1))
@@ -281,22 +334,8 @@ def build_dashboard_summary(
     )
     account_balances = []
     account_total = Decimal("0")
-    paid_installments = (
-        db.query(Installment)
-        .options(joinedload(Installment.purchase).joinedload(CreditCardPurchase.credit_card))
-        .filter(Installment.user_id == user_id, Installment.is_paid.is_(True))
-        .all()
-    )
     for account in accounts:
-        balance = _decimal(account.initial_balance)
-        for tx in db.query(Transaction).filter(
-            Transaction.user_id == user_id,
-            Transaction.account_id == account.id,
-        ).all():
-            balance += _decimal(tx.amount) if tx.type == "income" else -_decimal(tx.amount)
-        for inst in paid_installments:
-            if inst.paid_account_id == account.id:
-                balance -= _decimal(inst.amount)
+        balance = get_account_current_balance(db, account)
         converted_balance = converter.convert(balance, account.currency)
         if converted_balance is not None:
             account_total += converted_balance
@@ -325,7 +364,9 @@ def build_dashboard_summary(
         converted_current = converter.convert(current, inv.currency)
         if converted_current is not None:
             investment_total += converted_current
-        gain = _q(current - invested)
+        unrealized_gain = _q(current - invested)
+        realized_gain = _decimal(inv.realized_gain)
+        total_gain = _q(unrealized_gain + realized_gain)
         investment_rows.append(
             {
                 "investment_id": str(inv.id),
@@ -333,8 +374,10 @@ def build_dashboard_summary(
                 "type": inv.type,
                 "invested_amount": invested,
                 "current_value": current,
-                "gain": gain,
-                "return_pct": _pct(current, invested) or Decimal("0"),
+                "realized_gain": realized_gain,
+                "unrealized_gain": unrealized_gain,
+                "gain": total_gain,
+                "return_pct": _ratio_pct(total_gain, invested),
                 "converted_current_value": converted_current,
             }
         )
@@ -346,18 +389,43 @@ def build_dashboard_summary(
         .all()
     )
     goal_rows = []
-    goals_total = Decimal("0")
     for goal in goals:
-        current = _decimal(goal.current_amount)
+        allocations = (
+            db.query(SavingGoalAllocation)
+            .options(
+                joinedload(SavingGoalAllocation.account).joinedload(Account.currency),
+                joinedload(SavingGoalAllocation.investment).joinedload(Investment.currency),
+            )
+            .filter(SavingGoalAllocation.saving_goal_id == goal.id)
+            .all()
+        )
+        tracking_mode = "allocated" if allocations else "manual"
+        if allocations:
+            current = Decimal("0")
+            goal_converter = Converter(db, goal.currency.code, date_to)
+            for allocation in allocations:
+                if allocation.account is not None:
+                    source_value = get_account_current_balance(db, allocation.account)
+                    source_currency = allocation.account.currency
+                else:
+                    source_value = _decimal(allocation.investment.current_value)
+                    source_currency = allocation.investment.currency
+                converted_source = goal_converter.convert(source_value, source_currency)
+                if converted_source is not None:
+                    current += converted_source * _decimal(allocation.allocation_percent) / Decimal("100")
+            converter.warnings.extend(goal_converter.warnings)
+            current = _q(current)
+        else:
+            current = _decimal(goal.current_amount)
+
         target = _decimal(goal.target_amount)
         converted_current = converter.convert(current, goal.currency)
         converted_target = converter.convert(target, goal.currency)
-        if converted_current is not None:
-            goals_total += converted_current
         goal_rows.append(
             {
                 "goal_id": str(goal.id),
                 "name": goal.name,
+                "tracking_mode": tracking_mode,
                 "current_amount": current,
                 "target_amount": target,
                 "converted_current_amount": converted_current,
@@ -369,7 +437,8 @@ def build_dashboard_summary(
             }
         )
 
-    wealth = _q(account_total + investment_total + goals_total)
+    # Saving goals are labels/allocation views over assets, not additional assets.
+    wealth = _q(account_total + investment_total)
     previous_wealth = wealth - previous_net
 
     upcoming = (
