@@ -187,6 +187,7 @@ export interface Investment {
   type: InvestmentType;
   currency_id: string;
   invested_amount: number;
+  opening_quantity?: number | null;
   current_value: number;
   quantity: number;
   average_cost: number | null;
