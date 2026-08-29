@@ -14,6 +14,7 @@ from app.routers import (
     chatgpt_account_actions,
     chatgpt_actions,
     chatgpt_category_actions,
+    chatgpt_investment_actions,
     chatgpt_recurring_actions,
     credit_cards,
     currencies,
@@ -78,6 +79,7 @@ app.include_router(chatgpt_actions.router, prefix=API_PREFIX)
 app.include_router(chatgpt_recurring_actions.router, prefix=API_PREFIX)
 app.include_router(chatgpt_account_actions.router, prefix=API_PREFIX)
 app.include_router(chatgpt_category_actions.router, prefix=API_PREFIX)
+app.include_router(chatgpt_investment_actions.router, prefix=API_PREFIX)
 app.include_router(integration_tokens.router, prefix=API_PREFIX)
 app.include_router(categories.router, prefix=API_PREFIX)
 app.include_router(credit_cards.router, prefix=API_PREFIX)
