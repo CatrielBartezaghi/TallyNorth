@@ -26,6 +26,7 @@ from app.schemas.investment import (
     InvestmentOperationRead,
     InvestmentRead,
     InvestmentValuationCreate,
+    InvestmentValuationRead,
 )
 from app.services.gpt_action_idempotency import action_request_hash, find_action_request, record_action_request
 from app.services.integration_tokens import IntegrationPrincipal
