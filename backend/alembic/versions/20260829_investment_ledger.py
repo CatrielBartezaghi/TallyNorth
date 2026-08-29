@@ -17,14 +17,19 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-operation_type_enum = postgresql.ENUM(
-    "opening", "buy", "sell", "dividend", "interest", "fee",
-    name="investment_operation_type_enum",
-)
+operation_type_values = ("opening", "buy", "sell", "dividend", "interest", "fee")
 
 
 def upgrade() -> None:
-    operation_type_enum.create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM(
+        *operation_type_values,
+        name="investment_operation_type_enum",
+    ).create(op.get_bind(), checkfirst=True)
+    operation_type_enum = postgresql.ENUM(
+        *operation_type_values,
+        name="investment_operation_type_enum",
+        create_type=False,
+    )
 
     op.add_column("investments", sa.Column("symbol", sa.String(32), nullable=True))
     op.add_column("investments", sa.Column("broker", sa.String(80), nullable=True))
@@ -138,4 +143,7 @@ def downgrade() -> None:
     op.drop_column("investments", "quantity")
     op.drop_column("investments", "broker")
     op.drop_column("investments", "symbol")
-    operation_type_enum.drop(op.get_bind(), checkfirst=True)
+    postgresql.ENUM(
+        *operation_type_values,
+        name="investment_operation_type_enum",
+    ).drop(op.get_bind(), checkfirst=True)
