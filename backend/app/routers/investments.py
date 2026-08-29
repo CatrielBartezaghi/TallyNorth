@@ -41,7 +41,7 @@ def create_investment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    data = payload.model_dump(exclude={"invested_amount", "current_value"})
+    data = payload.model_dump(exclude={"invested_amount", "current_value", "opening_quantity"})
     investment = Investment(
         **data,
         user_id=current_user.id,
@@ -58,6 +58,12 @@ def create_investment(
             investment=investment,
             payload=InvestmentOperationCreate(
                 type="opening",
+                quantity=payload.opening_quantity,
+                unit_price=(
+                    payload.invested_amount / payload.opening_quantity
+                    if payload.opening_quantity is not None
+                    else None
+                ),
                 amount=payload.invested_amount,
                 date=date.today(),
                 notes="Opening position",
