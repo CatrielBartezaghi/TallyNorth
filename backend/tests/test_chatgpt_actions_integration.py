@@ -572,6 +572,16 @@ class ChatGPTActionsIntegrationTests(unittest.TestCase):
             1,
         )
 
+        goals = self.client.get(
+            "/api/v1/integrations/chatgpt/saving-goals",
+            headers=self.headers,
+        )
+        self.assertEqual(goals.status_code, 200, goals.text)
+        ledger_goal = next(item for item in goals.json() if item["goal"]["id"] == goal_id)
+        self.assertEqual(ledger_goal["tracking_mode"], "allocated")
+        self.assertEqual(Decimal(ledger_goal["effective_current_amount"]), Decimal("470.00"))
+        self.assertEqual(Decimal(ledger_goal["progress_pct"]), Decimal("9.40"))
+
     def test_99_revoked_token_is_rejected(self):
         token = (
             self.db.query(IntegrationToken)
