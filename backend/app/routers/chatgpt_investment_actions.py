@@ -147,6 +147,13 @@ def list_saving_goals_action(
     return [
         ChatGPTSavingGoalWithAllocations(
             goal=goal,
+            tracking_mode=(
+                "allocated"
+                if db.query(SavingGoalAllocation)
+                .filter(SavingGoalAllocation.saving_goal_id == goal.id)
+                .first()
+                else "manual"
+            ),
             allocations=(
                 db.query(SavingGoalAllocation)
                 .filter(SavingGoalAllocation.saving_goal_id == goal.id)
