@@ -64,12 +64,13 @@ def create_investment(
             ),
         )
     if payload.current_value > 0 or payload.invested_amount > 0:
+        initial_value = payload.current_value if payload.current_value > 0 else payload.invested_amount
         record_valuation(
             db,
             user_id=current_user.id,
             investment=investment,
             payload=InvestmentValuationCreate(
-                value=payload.current_value,
+                value=initial_value,
                 valuation_date=date.today(),
                 source="manual",
                 notes="Initial valuation",
