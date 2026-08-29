@@ -101,6 +101,31 @@ def list_investment_operations_action(
 
 
 @router.get(
+    "/investment-valuation-records",
+    response_model=list[InvestmentValuationRead],
+    operation_id="listInvestmentValuations",
+    summary="Listar valuaciones de inversión",
+    description="Devuelve el historial de valuaciones de una inversión, de más reciente a más antigua.",
+    openapi_extra=READ_ACTION,
+)
+def list_investment_valuations_action(
+    investment_id: str,
+    db: Session = Depends(get_db),
+    principal: IntegrationPrincipal = Depends(require_integration_scope("context:read")),
+):
+    try:
+        investment = get_owned_investment(db, principal.user.id, investment_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail={"code": "not_found", "message": str(exc)}) from exc
+    return (
+        db.query(InvestmentValuation)
+        .filter(InvestmentValuation.investment_id == investment.id)
+        .order_by(InvestmentValuation.valuation_date.desc(), InvestmentValuation.created_at.desc())
+        .all()
+    )
+
+
+@router.get(
     "/saving-goals",
     response_model=list[ChatGPTSavingGoalWithAllocations],
     operation_id="listSavingGoals",
