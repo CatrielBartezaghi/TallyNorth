@@ -11,6 +11,7 @@ from app.schemas.integration import (
     DEFAULT_INTEGRATION_SCOPES,
     ChatGPTFinanceBatchCreate,
     ChatGPTTransactionCreate,
+    IntegrationTokenUpdate,
 )
 from app.services.chatgpt_openapi import build_chatgpt_action_openapi
 from app.services.gpt_action_idempotency import action_request_hash
@@ -29,6 +30,16 @@ class IntegrationTokenTests(unittest.TestCase):
         self.assertTrue(first.startswith(TOKEN_PREFIX))
         self.assertNotEqual(first, second)
         self.assertEqual(len(hash_integration_token(first)), 64)
+
+
+    def test_scope_updates_are_deduplicated(self):
+        payload = IntegrationTokenUpdate(
+            scopes=["context:read", "investments:write", "investments:write"]
+        )
+        self.assertEqual(
+            payload.scopes,
+            ["context:read", "investments:write"],
+        )
 
 
 class ChatGPTActionSchemaTests(unittest.TestCase):
