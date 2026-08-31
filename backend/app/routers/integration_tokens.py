@@ -11,6 +11,7 @@ from app.schemas.integration import (
     IntegrationTokenCreate,
     IntegrationTokenCreated,
     IntegrationTokenRead,
+    IntegrationTokenUpdate,
 )
 from app.services.integration_tokens import (
     create_integration_token,
@@ -63,6 +64,32 @@ def issue_integration_token(
         **_token_read(token).model_dump(),
         token=raw_token,
     )
+
+
+@router.put("/{token_id}", response_model=IntegrationTokenRead)
+def update_integration_token(
+    token_id: str,
+    payload: IntegrationTokenUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    token = (
+        db.query(IntegrationToken)
+        .filter(
+            IntegrationToken.id == token_id,
+            IntegrationToken.user_id == current_user.id,
+        )
+        .first()
+    )
+    if token is None:
+        raise HTTPException(status_code=404, detail="Integration token not found")
+    if token.revoked_at is not None:
+        raise HTTPException(status_code=409, detail="Integration token is revoked")
+
+    token.scopes = " ".join(payload.scopes)
+    db.commit()
+    db.refresh(token)
+    return _token_read(token)
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)

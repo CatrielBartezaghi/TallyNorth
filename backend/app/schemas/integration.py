@@ -64,6 +64,19 @@ class IntegrationTokenCreate(BaseModel):
         return value
 
 
+class IntegrationTokenUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    scopes: list[IntegrationScope] = Field(min_length=1)
+
+    @field_validator("scopes")
+    @classmethod
+    def deduplicate_scopes(
+        cls, value: list[IntegrationScope]
+    ) -> list[IntegrationScope]:
+        return list(dict.fromkeys(value))
+
+
 class IntegrationTokenRead(BaseModel):
     id: uuid.UUID
     name: str
