@@ -11,6 +11,7 @@ from app.schemas.integration import (
     DEFAULT_INTEGRATION_SCOPES,
     ChatGPTFinanceBatchCreate,
     ChatGPTTransactionCreate,
+    ChatGPTTransactionUpdate,
     IntegrationTokenUpdate,
 )
 from app.services.chatgpt_openapi import build_chatgpt_action_openapi
@@ -59,7 +60,11 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
             "/integrations/chatgpt/entries",
             "/integrations/chatgpt/installments",
             "/integrations/chatgpt/transactions",
+            "/integrations/chatgpt/transactions/update",
+            "/integrations/chatgpt/transactions/delete",
             "/integrations/chatgpt/purchases",
+            "/integrations/chatgpt/purchases/update",
+            "/integrations/chatgpt/purchases/delete",
             "/integrations/chatgpt/entries/batch",
             "/integrations/chatgpt/recurring-entries",
             "/integrations/chatgpt/account-balances",
@@ -96,8 +101,12 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
                 "listRecurringEntries",
                 "getAccountBalances",
                 "createTransaction",
+                "updateTransaction",
+                "deleteTransaction",
                 "createRecurringEntry",
                 "createCreditCardPurchase",
+                "updateCreditCardPurchase",
+                "deleteCreditCardPurchase",
                 "createFinanceEntriesBatch",
                 "setAccountBalance",
                 "createCategory",
@@ -178,6 +187,22 @@ class ChatGPTActionSchemaTests(unittest.TestCase):
             ChatGPTFinanceBatchCreate(
                 idempotency_key="batch-limit-test",
                 entries=[entry] * 51,
+            )
+
+    def test_transaction_update_requires_at_least_one_change(self):
+        with self.assertRaises(ValidationError):
+            ChatGPTTransactionUpdate(
+                idempotency_key="transaction-update-0001",
+                transaction_id=uuid.uuid4(),
+                expected={
+                    "account_id": uuid.uuid4(),
+                    "category_id": None,
+                    "type": "expense",
+                    "amount": Decimal("123.45"),
+                    "description": "Original",
+                    "date": date(2026, 9, 1),
+                },
+                changes={},
             )
 
     def test_idempotency_hash_excludes_the_key(self):
