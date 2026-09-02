@@ -10,7 +10,7 @@ Importar únicamente:
 https://TU_DOMINIO/api/v1/integrations/chatgpt/openapi.json
 ```
 
-La versión 3 del contrato incluye flujo de caja, cuentas, recurrentes, inversiones y objetivos.
+La versión 4 del contrato incluye flujo de caja, cuentas, recurrentes, inversiones, objetivos y corrección/eliminación segura de movimientos.
 
 ## Consultas
 
@@ -31,8 +31,12 @@ La versión 3 del contrato incluye flujo de caja, cuentas, recurrentes, inversio
 ### Finanzas generales
 
 - `createTransaction`
+- `updateTransaction`
+- `deleteTransaction`
 - `createRecurringEntry`
 - `createCreditCardPurchase`
+- `updateCreditCardPurchase`
+- `deleteCreditCardPurchase`
 - `createFinanceEntriesBatch`
 - `setAccountBalance`
 - `createCategory`
@@ -124,6 +128,14 @@ saving_goals:write
 investments:write
 installments:pay
 ```
+
+## Correcciones y eliminaciones
+
+`updateTransaction` y `updateCreditCardPurchase` reciben el ID explícito, una foto `expected` del estado leído previamente y un objeto `changes`. Si el recurso cambió entre lectura y escritura, la operación responde 409 y no pisa el cambio concurrente.
+
+`deleteTransaction` y `deleteCreditCardPurchase` también exigen ID explícito y estado `expected`, y devuelven en la respuesta la copia exacta del recurso eliminado. Los reintentos con la misma `idempotency_key` devuelven `already_processed` aunque el recurso ya no exista.
+
+Una compra con tarjeta no puede cambiar campos estructurales (importe, tarjeta, fecha o cuotas) ni eliminarse si alguna cuota ya fue marcada como pagada. Cambiar sólo categoría o descripción no regenera cuotas.
 
 ## Confirmación e idempotencia
 
