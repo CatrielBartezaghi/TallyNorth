@@ -41,12 +41,18 @@ from app.schemas.integration import (
     ChatGPTInvestmentResult,
     ChatGPTInvestmentValueUpdate,
     ChatGPTPurchaseCreate,
+    ChatGPTPurchaseDelete,
+    ChatGPTPurchaseMutationResult,
     ChatGPTPurchaseResult,
+    ChatGPTPurchaseUpdate,
     ChatGPTSavingGoalCreate,
     ChatGPTSavingGoalProgressUpdate,
     ChatGPTSavingGoalResult,
     ChatGPTTransactionCreate,
+    ChatGPTTransactionDelete,
+    ChatGPTTransactionMutationResult,
     ChatGPTTransactionResult,
+    ChatGPTTransactionUpdate,
 )
 from app.services.chatgpt_openapi import build_chatgpt_action_openapi
 from app.services.chatgpt_operations import (
@@ -77,6 +83,11 @@ from app.services.gpt_action_idempotency import (
     action_request_hash,
     find_action_request,
     record_action_request,
+)
+from app.services.installment_service import (
+    compute_first_installment_date,
+    compute_installment_amount,
+    generate_installment_dates,
 )
 from app.services.integration_tokens import (
     IntegrationPrincipal,
@@ -453,6 +464,607 @@ def create_purchase_action(
             return existing
         raise _conflict("The purchase could not be created") from exc
     return ChatGPTPurchaseResult(status="created", message="Credit card purchase created successfully.", purchase=purchase)
+
+
+def _cached_mutation_payload(
+    db: Session,
+    user_id,
+    operation: str,
+    idempotency_key: str,
+    request_hash: str,
+) -> dict | None:
+    action_request = _existing_action_request(
+        db,
+        user_id,
+        operation,
+        idempotency_key,
+        request_hash,
+    )
+    if action_request is None:
+        return None
+    if not action_request.response_payload:
+        raise _conflict("The cached mutation result is unavailable")
+    return action_request.response_payload
+
+
+def _transaction_matches_expected(transaction: Transaction, expected) -> None:
+    mismatches: list[str] = []
+    if transaction.account_id != expected.account_id:
+        mismatches.append("account_id")
+    if transaction.category_id != expected.category_id:
+        mismatches.append("category_id")
+    if transaction.type != expected.type:
+        mismatches.append("type")
+    if Decimal(str(transaction.amount)) != expected.amount:
+        mismatches.append("amount")
+    if transaction.description != expected.description:
+        mismatches.append("description")
+    if transaction.date != expected.date:
+        mismatches.append("date")
+    if mismatches:
+        raise _conflict(
+            "Transaction changed since it was read; mismatched fields: "
+            + ", ".join(mismatches),
+            "stale_resource",
+        )
+
+
+def _purchase_matches_expected(purchase: CreditCardPurchase, expected) -> None:
+    mismatches: list[str] = []
+    if purchase.credit_card_id != expected.credit_card_id:
+        mismatches.append("credit_card_id")
+    if purchase.category_id != expected.category_id:
+        mismatches.append("category_id")
+    if purchase.description != expected.description:
+        mismatches.append("description")
+    if Decimal(str(purchase.total_amount)) != expected.total_amount:
+        mismatches.append("total_amount")
+    if purchase.installments != expected.installments:
+        mismatches.append("installments")
+    if purchase.starting_installment != expected.starting_installment:
+        mismatches.append("starting_installment")
+    if purchase.purchase_date != expected.purchase_date:
+        mismatches.append("purchase_date")
+    if mismatches:
+        raise _conflict(
+            "Credit card purchase changed since it was read; mismatched fields: "
+            + ", ".join(mismatches),
+            "stale_resource",
+        )
+
+
+def _owned_account_for_action(db: Session, user_id, account_id) -> Account:
+    account = (
+        db.query(Account)
+        .filter(Account.id == account_id, Account.user_id == user_id)
+        .first()
+    )
+    if account is None:
+        raise _not_found("Account not found for the authenticated user")
+    return account
+
+
+def _owned_card_for_action(db: Session, user_id, credit_card_id) -> CreditCard:
+    card = (
+        db.query(CreditCard)
+        .filter(CreditCard.id == credit_card_id, CreditCard.user_id == user_id)
+        .first()
+    )
+    if card is None:
+        raise _not_found("Credit card not found for the authenticated user")
+    return card
+
+
+def _owned_category_for_action(
+    db: Session,
+    user_id,
+    category_id,
+    operation_type: str,
+) -> Category | None:
+    if category_id is None:
+        return None
+    category = (
+        db.query(Category)
+        .filter(
+            Category.id == category_id,
+            Category.user_id == user_id,
+            Category.is_active.is_(True),
+        )
+        .first()
+    )
+    if category is None:
+        raise _not_found("Category not found for the authenticated user")
+    if category.type not in (operation_type, "both"):
+        raise _unprocessable(
+            f"Category '{category.name}' cannot be used for {operation_type} operations"
+        )
+    return category
+
+
+def _reject_null_changes(changes, allowed_null_fields: set[str]) -> None:
+    for field_name in changes.model_fields_set:
+        if field_name in allowed_null_fields:
+            continue
+        if getattr(changes, field_name) is None:
+            raise _unprocessable(f"{field_name} cannot be null")
+
+
+@router.post(
+    "/transactions/update",
+    response_model=ChatGPTTransactionMutationResult,
+    operation_id="updateTransaction",
+    summary="Actualizar un movimiento",
+    description="Actualiza un movimiento por ID cuando coincide su estado esperado.",
+    openapi_extra=WRITE_ACTION,
+)
+def update_transaction_action(
+    payload: ChatGPTTransactionUpdate,
+    db: Session = Depends(get_db),
+    principal: IntegrationPrincipal = Depends(require_integration_scope("transactions:create")),
+):
+    user_id = principal.user.id
+    request_hash = action_request_hash(payload)
+    cached = _cached_mutation_payload(
+        db,
+        user_id,
+        "updateTransaction",
+        payload.idempotency_key,
+        request_hash,
+    )
+    if cached is not None:
+        return ChatGPTTransactionMutationResult(
+            status="already_processed",
+            message="This update was already processed.",
+            transaction=cached["transaction"],
+        )
+
+    try:
+        transaction = (
+            db.query(Transaction)
+            .filter(
+                Transaction.id == payload.transaction_id,
+                Transaction.user_id == user_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if transaction is None:
+            raise _not_found("Transaction not found for the authenticated user")
+
+        _transaction_matches_expected(transaction, payload.expected)
+        _reject_null_changes(payload.changes, {"category_id"})
+        changed_fields = payload.changes.model_fields_set
+
+        if "account_id" in changed_fields:
+            _owned_account_for_action(db, user_id, payload.changes.account_id)
+
+        final_type = (
+            payload.changes.type
+            if "type" in changed_fields
+            else transaction.type
+        )
+        final_category_id = (
+            payload.changes.category_id
+            if "category_id" in changed_fields
+            else transaction.category_id
+        )
+        category = _owned_category_for_action(
+            db,
+            user_id,
+            final_category_id,
+            final_type,
+        )
+
+        for field_name in ("account_id", "type", "amount", "description", "date"):
+            if field_name in changed_fields:
+                setattr(transaction, field_name, getattr(payload.changes, field_name))
+        if "category_id" in changed_fields:
+            transaction.category_id = payload.changes.category_id
+        transaction.category = category.name if category else None
+
+        db.flush()
+        result = ChatGPTTransactionMutationResult(
+            status="updated",
+            message="Transaction updated successfully.",
+            transaction=transaction,
+        )
+        record_action_request(
+            db,
+            user_id=user_id,
+            integration_token_id=principal.token.id,
+            operation="updateTransaction",
+            idempotency_key=payload.idempotency_key,
+            request_hash=request_hash,
+            resource_id=transaction.id,
+            response_payload={
+                "transaction": result.transaction.model_dump(mode="json"),
+            },
+        )
+        db.commit()
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        cached = _cached_mutation_payload(
+            db,
+            user_id,
+            "updateTransaction",
+            payload.idempotency_key,
+            request_hash,
+        )
+        if cached is not None:
+            return ChatGPTTransactionMutationResult(
+                status="already_processed",
+                message="This update was already processed.",
+                transaction=cached["transaction"],
+            )
+        raise _conflict("The transaction could not be updated") from exc
+
+
+@router.post(
+    "/transactions/delete",
+    response_model=ChatGPTTransactionMutationResult,
+    operation_id="deleteTransaction",
+    summary="Eliminar un movimiento",
+    description="Elimina un movimiento por ID sólo cuando coincide su estado esperado.",
+    openapi_extra=WRITE_ACTION,
+)
+def delete_transaction_action(
+    payload: ChatGPTTransactionDelete,
+    db: Session = Depends(get_db),
+    principal: IntegrationPrincipal = Depends(require_integration_scope("transactions:create")),
+):
+    user_id = principal.user.id
+    request_hash = action_request_hash(payload)
+    cached = _cached_mutation_payload(
+        db,
+        user_id,
+        "deleteTransaction",
+        payload.idempotency_key,
+        request_hash,
+    )
+    if cached is not None:
+        return ChatGPTTransactionMutationResult(
+            status="already_processed",
+            message="This deletion was already processed.",
+            transaction=cached["transaction"],
+        )
+
+    try:
+        transaction = (
+            db.query(Transaction)
+            .filter(
+                Transaction.id == payload.transaction_id,
+                Transaction.user_id == user_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if transaction is None:
+            raise _not_found("Transaction not found for the authenticated user")
+        _transaction_matches_expected(transaction, payload.expected)
+
+        result = ChatGPTTransactionMutationResult(
+            status="deleted",
+            message="Transaction deleted successfully.",
+            transaction=transaction,
+        )
+        resource_id = transaction.id
+        response_payload = {
+            "transaction": result.transaction.model_dump(mode="json"),
+        }
+        db.delete(transaction)
+        record_action_request(
+            db,
+            user_id=user_id,
+            integration_token_id=principal.token.id,
+            operation="deleteTransaction",
+            idempotency_key=payload.idempotency_key,
+            request_hash=request_hash,
+            resource_id=resource_id,
+            response_payload=response_payload,
+        )
+        db.commit()
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        cached = _cached_mutation_payload(
+            db,
+            user_id,
+            "deleteTransaction",
+            payload.idempotency_key,
+            request_hash,
+        )
+        if cached is not None:
+            return ChatGPTTransactionMutationResult(
+                status="already_processed",
+                message="This deletion was already processed.",
+                transaction=cached["transaction"],
+            )
+        raise _conflict("The transaction could not be deleted") from exc
+
+
+@router.post(
+    "/purchases/update",
+    response_model=ChatGPTPurchaseMutationResult,
+    operation_id="updateCreditCardPurchase",
+    summary="Actualizar una compra con tarjeta",
+    description="Actualiza una compra por ID y regenera cuotas sólo si es seguro hacerlo.",
+    openapi_extra=WRITE_ACTION,
+)
+def update_purchase_action(
+    payload: ChatGPTPurchaseUpdate,
+    db: Session = Depends(get_db),
+    principal: IntegrationPrincipal = Depends(require_integration_scope("purchases:create")),
+):
+    user_id = principal.user.id
+    request_hash = action_request_hash(payload)
+    cached = _cached_mutation_payload(
+        db,
+        user_id,
+        "updateCreditCardPurchase",
+        payload.idempotency_key,
+        request_hash,
+    )
+    if cached is not None:
+        return ChatGPTPurchaseMutationResult(
+            status="already_processed",
+            message="This update was already processed.",
+            purchase=cached["purchase"],
+        )
+
+    try:
+        purchase = (
+            db.query(CreditCardPurchase)
+            .filter(
+                CreditCardPurchase.id == payload.purchase_id,
+                CreditCardPurchase.user_id == user_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if purchase is None:
+            raise _not_found("Credit card purchase not found for the authenticated user")
+
+        _purchase_matches_expected(purchase, payload.expected)
+        _reject_null_changes(payload.changes, {"category_id"})
+        changed_fields = payload.changes.model_fields_set
+
+        structural_fields = {
+            "credit_card_id",
+            "total_amount",
+            "installments",
+            "starting_installment",
+            "purchase_date",
+        }
+        needs_regeneration = bool(changed_fields & structural_fields)
+        if needs_regeneration and any(row.is_paid for row in purchase.installment_rows):
+            raise _conflict(
+                "Cannot change structural purchase fields after an installment was paid",
+                "paid_installments_exist",
+            )
+
+        final_card_id = (
+            payload.changes.credit_card_id
+            if "credit_card_id" in changed_fields
+            else purchase.credit_card_id
+        )
+        card = _owned_card_for_action(db, user_id, final_card_id)
+        final_installments = (
+            payload.changes.installments
+            if "installments" in changed_fields
+            else purchase.installments
+        )
+        final_starting_installment = (
+            payload.changes.starting_installment
+            if "starting_installment" in changed_fields
+            else purchase.starting_installment
+        )
+        if final_starting_installment > final_installments:
+            raise _unprocessable(
+                "starting_installment cannot be greater than installments"
+            )
+
+        final_category_id = (
+            payload.changes.category_id
+            if "category_id" in changed_fields
+            else purchase.category_id
+        )
+        category = _owned_category_for_action(
+            db,
+            user_id,
+            final_category_id,
+            "expense",
+        )
+
+        for field_name in (
+            "credit_card_id",
+            "description",
+            "total_amount",
+            "installments",
+            "purchase_date",
+        ):
+            if field_name in changed_fields:
+                setattr(purchase, field_name, getattr(payload.changes, field_name))
+        if "category_id" in changed_fields:
+            purchase.category_id = payload.changes.category_id
+        purchase.category = category.name if category else None
+
+        if needs_regeneration:
+            purchase.installment_amount = compute_installment_amount(
+                Decimal(str(purchase.total_amount)),
+                purchase.installments,
+            )
+            purchase.first_installment_date = compute_first_installment_date(
+                purchase_date=purchase.purchase_date,
+                closing_day=card.closing_day,
+                due_day=card.due_day,
+            )
+            db.query(Installment).filter(
+                Installment.purchase_id == purchase.id
+            ).delete(synchronize_session=False)
+            installment_count = (
+                purchase.installments - final_starting_installment + 1
+            )
+            due_dates = generate_installment_dates(
+                purchase.first_installment_date,
+                installment_count,
+                card.due_day,
+            )
+            for installment_number, due_date in enumerate(
+                due_dates,
+                start=final_starting_installment,
+            ):
+                db.add(
+                    Installment(
+                        user_id=user_id,
+                        purchase_id=purchase.id,
+                        installment_number=installment_number,
+                        due_date=due_date,
+                        amount=purchase.installment_amount,
+                    )
+                )
+            db.flush()
+            db.expire(purchase, ["installment_rows"])
+        else:
+            db.flush()
+
+        result = ChatGPTPurchaseMutationResult(
+            status="updated",
+            message="Credit card purchase updated successfully.",
+            purchase=purchase,
+        )
+        record_action_request(
+            db,
+            user_id=user_id,
+            integration_token_id=principal.token.id,
+            operation="updateCreditCardPurchase",
+            idempotency_key=payload.idempotency_key,
+            request_hash=request_hash,
+            resource_id=purchase.id,
+            response_payload={
+                "purchase": result.purchase.model_dump(mode="json"),
+            },
+        )
+        db.commit()
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        cached = _cached_mutation_payload(
+            db,
+            user_id,
+            "updateCreditCardPurchase",
+            payload.idempotency_key,
+            request_hash,
+        )
+        if cached is not None:
+            return ChatGPTPurchaseMutationResult(
+                status="already_processed",
+                message="This update was already processed.",
+                purchase=cached["purchase"],
+            )
+        raise _conflict("The purchase could not be updated") from exc
+
+
+@router.post(
+    "/purchases/delete",
+    response_model=ChatGPTPurchaseMutationResult,
+    operation_id="deleteCreditCardPurchase",
+    summary="Eliminar una compra con tarjeta",
+    description="Elimina una compra por ID si coincide su estado esperado y no tiene cuotas pagadas.",
+    openapi_extra=WRITE_ACTION,
+)
+def delete_purchase_action(
+    payload: ChatGPTPurchaseDelete,
+    db: Session = Depends(get_db),
+    principal: IntegrationPrincipal = Depends(require_integration_scope("purchases:create")),
+):
+    user_id = principal.user.id
+    request_hash = action_request_hash(payload)
+    cached = _cached_mutation_payload(
+        db,
+        user_id,
+        "deleteCreditCardPurchase",
+        payload.idempotency_key,
+        request_hash,
+    )
+    if cached is not None:
+        return ChatGPTPurchaseMutationResult(
+            status="already_processed",
+            message="This deletion was already processed.",
+            purchase=cached["purchase"],
+        )
+
+    try:
+        purchase = (
+            db.query(CreditCardPurchase)
+            .filter(
+                CreditCardPurchase.id == payload.purchase_id,
+                CreditCardPurchase.user_id == user_id,
+            )
+            .with_for_update()
+            .first()
+        )
+        if purchase is None:
+            raise _not_found("Credit card purchase not found for the authenticated user")
+        _purchase_matches_expected(purchase, payload.expected)
+        if any(row.is_paid for row in purchase.installment_rows):
+            raise _conflict(
+                "Cannot delete a purchase after an installment was paid",
+                "paid_installments_exist",
+            )
+
+        result = ChatGPTPurchaseMutationResult(
+            status="deleted",
+            message="Credit card purchase deleted successfully.",
+            purchase=purchase,
+        )
+        resource_id = purchase.id
+        response_payload = {
+            "purchase": result.purchase.model_dump(mode="json"),
+        }
+        db.delete(purchase)
+        record_action_request(
+            db,
+            user_id=user_id,
+            integration_token_id=principal.token.id,
+            operation="deleteCreditCardPurchase",
+            idempotency_key=payload.idempotency_key,
+            request_hash=request_hash,
+            resource_id=resource_id,
+            response_payload=response_payload,
+        )
+        db.commit()
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        cached = _cached_mutation_payload(
+            db,
+            user_id,
+            "deleteCreditCardPurchase",
+            payload.idempotency_key,
+            request_hash,
+        )
+        if cached is not None:
+            return ChatGPTPurchaseMutationResult(
+                status="already_processed",
+                message="This deletion was already processed.",
+                purchase=cached["purchase"],
+            )
+        raise _conflict("The purchase could not be deleted") from exc
+
+
 def _existing_batch_result(db: Session, user_id, payload: ChatGPTFinanceBatchCreate, request_hash: str) -> ChatGPTFinanceBatchResult | None:
     action_request = _existing_action_request(db, user_id, "createFinanceEntriesBatch", payload.idempotency_key, request_hash)
     if action_request is None:
