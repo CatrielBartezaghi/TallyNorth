@@ -49,5 +49,12 @@ class CreditCardPurchase(Base):
         back_populates="purchase", cascade="all, delete-orphan", order_by="Installment.installment_number"
     )
 
+    @property
+    def starting_installment(self) -> int:
+        return min(
+            (row.installment_number for row in self.installment_rows),
+            default=1,
+        )
+
     def __repr__(self) -> str:
         return f"<CreditCardPurchase id={self.id} description={self.description!r} installments={self.installments}>"
