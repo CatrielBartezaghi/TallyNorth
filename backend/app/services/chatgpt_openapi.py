@@ -13,8 +13,12 @@ ALLOWED_OPERATION_IDS = {
     "listRecurringEntries",
     "getAccountBalances",
     "createTransaction",
+    "updateTransaction",
+    "deleteTransaction",
     "createRecurringEntry",
     "createCreditCardPurchase",
+    "updateCreditCardPurchase",
+    "deleteCreditCardPurchase",
     "createFinanceEntriesBatch",
     "setAccountBalance",
     "createCategory",
@@ -123,7 +127,7 @@ def build_chatgpt_action_openapi(
                 "Consulta finanzas, inversiones y objetivos; registra movimientos, "
                 "operaciones de cartera, valuaciones y cambios confirmados para el usuario autenticado."
             ),
-            "version": "3.0.0",
+            "version": "4.0.0",
         },
         "servers": [{"url": server_url.rstrip("/")}],
         "security": [{"bearerAuth": []}],
