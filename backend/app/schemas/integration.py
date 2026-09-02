@@ -1,5 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
+
+DateType = date
 from decimal import Decimal
 from typing import Annotated, Literal
 
@@ -206,7 +208,7 @@ class ChatGPTTransactionExpected(BaseModel):
     type: TransactionType
     amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     description: str = Field(min_length=1, max_length=255)
-    date: date
+    date: DateType
 
 
 class ChatGPTTransactionChanges(BaseModel):
@@ -217,7 +219,7 @@ class ChatGPTTransactionChanges(BaseModel):
     type: TransactionType | None = None
     amount: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=2)
     description: str | None = Field(default=None, min_length=1, max_length=255)
-    date: date | None = None
+    date: DateType | None = None
 
     @model_validator(mode="after")
     def require_change(self) -> "ChatGPTTransactionChanges":
