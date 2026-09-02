@@ -198,6 +198,114 @@ class ChatGPTPurchaseCreate(BaseModel):
         return self
 
 
+class ChatGPTTransactionExpected(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: uuid.UUID
+    category_id: uuid.UUID | None
+    type: TransactionType
+    amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+    description: str = Field(min_length=1, max_length=255)
+    date: date
+
+
+class ChatGPTTransactionChanges(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    account_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    type: TransactionType | None = None
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=2)
+    description: str | None = Field(default=None, min_length=1, max_length=255)
+    date: date | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> "ChatGPTTransactionChanges":
+        if not self.model_fields_set:
+            raise ValueError("At least one transaction field must be changed")
+        return self
+
+
+class ChatGPTTransactionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    transaction_id: uuid.UUID
+    expected: ChatGPTTransactionExpected
+    changes: ChatGPTTransactionChanges
+
+
+class ChatGPTTransactionDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    transaction_id: uuid.UUID
+    expected: ChatGPTTransactionExpected
+
+
+class ChatGPTPurchaseExpected(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    credit_card_id: uuid.UUID
+    category_id: uuid.UUID | None
+    description: str = Field(min_length=1, max_length=255)
+    total_amount: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+    installments: int = Field(ge=1, le=120)
+    starting_installment: int = Field(ge=1, le=120)
+    purchase_date: date
+
+
+class ChatGPTPurchaseChanges(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    credit_card_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    description: str | None = Field(default=None, min_length=1, max_length=255)
+    total_amount: Decimal | None = Field(default=None, gt=0, max_digits=15, decimal_places=2)
+    installments: int | None = Field(default=None, ge=1, le=120)
+    starting_installment: int | None = Field(default=None, ge=1, le=120)
+    purchase_date: date | None = None
+
+    @model_validator(mode="after")
+    def require_change(self) -> "ChatGPTPurchaseChanges":
+        if not self.model_fields_set:
+            raise ValueError("At least one purchase field must be changed")
+        return self
+
+
+class ChatGPTPurchaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    purchase_id: uuid.UUID
+    expected: ChatGPTPurchaseExpected
+    changes: ChatGPTPurchaseChanges
+
+
+class ChatGPTPurchaseDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str = Field(
+        min_length=8,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    purchase_id: uuid.UUID
+    expected: ChatGPTPurchaseExpected
+
+
 ActionResultStatus = Literal["created", "already_processed"]
 
 
@@ -215,6 +323,21 @@ class ChatGPTRecurringEntryResult(BaseModel):
 
 class ChatGPTPurchaseResult(BaseModel):
     status: ActionResultStatus
+    message: str
+    purchase: PurchaseRead
+
+
+MutationActionStatus = Literal["updated", "deleted", "already_processed"]
+
+
+class ChatGPTTransactionMutationResult(BaseModel):
+    status: MutationActionStatus
+    message: str
+    transaction: TransactionRead
+
+
+class ChatGPTPurchaseMutationResult(BaseModel):
+    status: MutationActionStatus
     message: str
     purchase: PurchaseRead
 
